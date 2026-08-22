@@ -41,9 +41,11 @@ export default function RateSchedule({ label, changes, onChange, allowNegative }
     <>
       <button
         onClick={() => setOpen(true)}
-        className="text-[11px] font-mono text-teal hover:text-ink border border-teal/40 hover:border-teal rounded-sm px-1.5 py-0.5"
+        aria-label={changes.length === 0 ? 'Add a rate schedule' : `Edit rate schedule (${changes.length} scheduled change${changes.length === 1 ? '' : 's'})`}
+        title={changes.length === 0 ? 'Add a rate schedule' : `${changes.length} scheduled change${changes.length === 1 ? '' : 's'}`}
+        className="text-[11px] font-mono text-inkfaint hover:text-teal underline decoration-dotted underline-offset-2"
       >
-        {changes.length === 0 ? '+ schedule' : `${changes.length} change${changes.length === 1 ? '' : 's'}`}
+        {changes.length === 0 ? '+' : changes.length}
       </button>
 
       {open && (

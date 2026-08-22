@@ -9,6 +9,7 @@ interface Props {
   allowNegative?: boolean;
   /** Fixed number of decimal places always shown, e.g. 0 for whole-number ages. Defaults to 2 (money/percentages). */
   decimalScale?: number;
+  disabled?: boolean;
 }
 
 /**
@@ -27,6 +28,7 @@ export default function NumberInput({
   className,
   allowNegative = false,
   decimalScale = 2,
+  disabled = false,
 }: Props) {
   return (
     <NumericFormat
@@ -40,6 +42,7 @@ export default function NumberInput({
       inputMode="decimal"
       placeholder={placeholder ?? '0'}
       className={className}
+      disabled={disabled}
     />
   );
 }

@@ -52,6 +52,15 @@ export const PERSON_COLOR_PALETTE = [
 /** Default colour for the "Shared" bucket before the user picks their own. */
 export const DEFAULT_SHARED_COLOR = '#94a3b8';
 
+/** A scheduled change to a rate — used wherever a flat annual rate (account growth, asset growth/depreciation, loan interest) can vary over time. */
+export interface RateChange {
+  id: string;
+  /** ISO date this rate takes effect from */
+  date: string;
+  /** New annual rate, as a percentage — same units/sign convention as the field it overrides */
+  rate: number;
+}
+
 export interface Account {
   id: string;
   name: string;
@@ -64,6 +73,8 @@ export interface Account {
   contributionFrequency: Frequency;
   /** A Person.id, or SHARED_OWNER */
   ownerId: string;
+  /** Scheduled future changes to annualGrowthRate, e.g. a fixed-term bond maturing into a lower rate. */
+  rateChanges?: RateChange[];
 }
 
 export type ExpenseCategory = 'regular' | 'variable';
@@ -111,6 +122,8 @@ export interface Asset {
   annualGrowthRate: number;
   /** A Person.id, or SHARED_OWNER */
   ownerId: string;
+  /** Scheduled future changes to annualGrowthRate, e.g. depreciation slowing after the first few years. */
+  rateChanges?: RateChange[];
 }
 
 export interface TaxBand {
@@ -183,6 +196,8 @@ export interface Loan {
   assetId?: string;
   /** A Person.id, or SHARED_OWNER */
   ownerId: string;
+  /** Scheduled future changes to annualInterestRate, e.g. a mortgage's fixed-rate period ending. */
+  rateChanges?: RateChange[];
 }
 
 export interface Settings {

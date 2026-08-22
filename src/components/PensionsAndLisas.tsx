@@ -11,6 +11,7 @@ import AddWithOwner from './AddWithOwner';
 import Card from './Card';
 import RemoveButton from './RemoveButton';
 import OwnerGroupedList from './OwnerGroupedList';
+import RateSchedule from './RateSchedule';
 
 interface Props {
   accounts: Account[];
@@ -100,12 +101,19 @@ export default function PensionsAndLisas({ accounts, salaries, tax, onChange }: 
           />
         </td>
         <td className="py-2 pr-2 text-right">
-          <NumberInput
-            value={a.annualGrowthRate}
-            onChange={(annualGrowthRate) => update(a.id, { annualGrowthRate })}
-            className="w-16 bg-transparent text-right font-mono tabular focus:outline-none"
-          />
-          <span className="text-inkfaint text-xs">%</span>
+          <div className="flex items-center justify-end gap-1">
+            <NumberInput
+              value={a.annualGrowthRate}
+              onChange={(annualGrowthRate) => update(a.id, { annualGrowthRate })}
+              className="w-16 bg-transparent text-right font-mono tabular focus:outline-none"
+            />
+            <span className="text-inkfaint text-xs">%</span>
+            <RateSchedule
+              label={`${a.name || 'Pension'} — growth rate changes`}
+              changes={a.rateChanges ?? []}
+              onChange={(rateChanges) => update(a.id, { rateChanges })}
+            />
+          </div>
         </td>
         <td className="py-2 pr-2 text-right font-mono tabular text-xs text-teal">
           {formatCurrency(total, currency)}
@@ -172,12 +180,19 @@ export default function PensionsAndLisas({ accounts, salaries, tax, onChange }: 
           />
         </td>
         <td className="py-2 pr-2 text-right">
-          <NumberInput
-            value={a.annualGrowthRate}
-            onChange={(annualGrowthRate) => update(a.id, { annualGrowthRate })}
-            className="w-16 bg-transparent text-right font-mono tabular focus:outline-none"
-          />
-          <span className="text-inkfaint text-xs">%</span>
+          <div className="flex items-center justify-end gap-1">
+            <NumberInput
+              value={a.annualGrowthRate}
+              onChange={(annualGrowthRate) => update(a.id, { annualGrowthRate })}
+              className="w-16 bg-transparent text-right font-mono tabular focus:outline-none"
+            />
+            <span className="text-inkfaint text-xs">%</span>
+            <RateSchedule
+              label={`${a.name || 'Lifetime ISA'} — growth rate changes`}
+              changes={a.rateChanges ?? []}
+              onChange={(rateChanges) => update(a.id, { rateChanges })}
+            />
+          </div>
         </td>
         <td className="py-2 pr-2 text-right">
           <div className="flex items-center justify-end gap-1">

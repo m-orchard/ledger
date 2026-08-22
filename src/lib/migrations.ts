@@ -98,6 +98,20 @@ export const migrations: ((data: any) => any)[] = [
     })),
     settings: { sharedColor: DEFAULT_SHARED_COLOR, ...data.settings },
   }),
+  // v9 -> v10: single before/after maturity split replaced by a general list of
+  // scheduled rate changes, usable on accounts, assets, and loans alike.
+  (data) => ({
+    ...data,
+    accounts: (data.accounts ?? []).map((a: any) => {
+      const { maturityDate, postMaturityGrowthRate, ...rest } = a;
+      return {
+        rateChanges: maturityDate
+          ? [{ id: crypto.randomUUID(), date: maturityDate, rate: postMaturityGrowthRate ?? 0 }]
+          : (a.rateChanges ?? []),
+        ...rest,
+      };
+    }),
+  }),
 ];
 
 export const CURRENT_SCHEMA_VERSION = migrations.length + 1;

@@ -8,6 +8,7 @@ import AddWithOwner from './AddWithOwner';
 import Card from './Card';
 import RemoveButton from './RemoveButton';
 import OwnerGroupedList from './OwnerGroupedList';
+import RateSchedule from './RateSchedule';
 
 interface Props {
   assets: Asset[];
@@ -72,13 +73,21 @@ export default function Assets({ assets, onChange }: Props) {
                   />
                 </td>
                 <td className="py-2 pr-2 text-right">
-                  <NumberInput
-                    value={a.annualGrowthRate}
-                    onChange={(annualGrowthRate) => update(a.id, { annualGrowthRate })}
-                    allowNegative
-                    className="w-16 bg-transparent text-right font-mono tabular focus:outline-none"
-                  />
-                  <span className="text-inkfaint text-xs">%</span>
+                  <div className="flex items-center justify-end gap-1">
+                    <NumberInput
+                      value={a.annualGrowthRate}
+                      onChange={(annualGrowthRate) => update(a.id, { annualGrowthRate })}
+                      allowNegative
+                      className="w-16 bg-transparent text-right font-mono tabular focus:outline-none"
+                    />
+                    <span className="text-inkfaint text-xs">%</span>
+                    <RateSchedule
+                      label={`${a.name || 'Asset'} — growth rate changes`}
+                      changes={a.rateChanges ?? []}
+                      onChange={(rateChanges) => update(a.id, { rateChanges })}
+                      allowNegative
+                    />
+                  </div>
                 </td>
                 <td className="py-2 text-right">
                   <RemoveButton onClick={() => remove(a.id)} label={`Remove ${a.name || 'asset'}`} />
@@ -103,8 +112,9 @@ export default function Assets({ assets, onChange }: Props) {
       </div>
       <p className="text-xs text-inkfaint mb-4">
         Property, vehicles, or anything else with real value — with its own growth (or
-        depreciation, using a negative rate) assumption. Link a loan to one (on the Outgoings tab)
-        to see its equity — the asset's value minus what's still owed.
+        depreciation, using a negative rate) assumption, which can change over time via the
+        schedule button (e.g. a car depreciating faster in its first few years). Link a loan to
+        one (on the Outgoings tab) to see its equity — the asset's value minus what's still owed.
       </p>
 
       <OwnerGroupedList

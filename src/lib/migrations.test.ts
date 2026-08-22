@@ -292,6 +292,60 @@ describe('migrations', () => {
     expect(typeof result.settings.sharedColor).toBe('string');
   });
 
+  it('upgrades a v9 blob, converting maturityDate/postMaturityGrowthRate into rateChanges', () => {
+    const v9 = {
+      income: [],
+      expenses: [],
+      accounts: [
+        {
+          id: 'a1',
+          name: 'Fixed bond',
+          type: 'savings',
+          balance: 10000,
+          annualGrowthRate: 5,
+          contributionAmount: 0,
+          contributionFrequency: 'monthly',
+          ownerId: SHARED_OWNER,
+          maturityDate: '2027-06-01',
+          postMaturityGrowthRate: 1.5,
+        },
+        {
+          id: 'a2',
+          name: 'Plain savings',
+          type: 'cash',
+          balance: 500,
+          annualGrowthRate: 2,
+          contributionAmount: 0,
+          contributionFrequency: 'monthly',
+          ownerId: SHARED_OWNER,
+        },
+      ],
+      assets: [],
+      salaries: [],
+      loans: [],
+      oneOffs: [],
+      people: [],
+      settings: {
+        currentAge: 35,
+        retirementAge: 65,
+        projectionEndAge: 90,
+        inflationRate: 2.5,
+        currency: 'GBP',
+        tax: { incomeTaxBands: [], personalAllowanceTaperStart: 100000, niPrimaryThreshold: 12570, niUpperEarningsLimit: 50270, niMainRate: 8, niUpperRate: 2 },
+        sharedColor: '#94a3b8',
+      },
+    };
+
+    const result = migrateFrom(9, v9);
+
+    expect(result.accounts[0].rateChanges).toEqual([
+      { id: expect.any(String), date: '2027-06-01', rate: 1.5 },
+    ]);
+    expect(result.accounts[0].maturityDate).toBeUndefined();
+    expect(result.accounts[0].postMaturityGrowthRate).toBeUndefined();
+    expect(result.accounts[1].rateChanges).toEqual([]);
+  });
+
   it('leaves an already-current blob effectively unchanged', () => {
     const current = {
       income: [{ id: 'i1', name: 'Rent income', amount: 500, frequency: 'monthly', ownerId: SHARED_OWNER }],

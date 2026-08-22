@@ -8,6 +8,7 @@ import AddWithOwner from './AddWithOwner';
 import Card from './Card';
 import RemoveButton from './RemoveButton';
 import OwnerGroupedList from './OwnerGroupedList';
+import RateSchedule from './RateSchedule';
 
 interface Props {
   loans: Loan[];
@@ -99,12 +100,19 @@ export default function Loans({ loans, assets, onChange }: Props) {
                     )}
                   </td>
                   <td className="py-2 pr-2 text-right">
-                    <NumberInput
-                      value={l.annualInterestRate}
-                      onChange={(annualInterestRate) => update(l.id, { annualInterestRate })}
-                      className="w-16 bg-transparent text-right font-mono tabular focus:outline-none"
-                    />
-                    <span className="text-inkfaint text-xs">%</span>
+                    <div className="flex items-center justify-end gap-1">
+                      <NumberInput
+                        value={l.annualInterestRate}
+                        onChange={(annualInterestRate) => update(l.id, { annualInterestRate })}
+                        className="w-16 bg-transparent text-right font-mono tabular focus:outline-none"
+                      />
+                      <span className="text-inkfaint text-xs">%</span>
+                      <RateSchedule
+                        label={`${l.name || 'Loan'} — interest rate changes`}
+                        changes={l.rateChanges ?? []}
+                        onChange={(rateChanges) => update(l.id, { rateChanges })}
+                      />
+                    </div>
                   </td>
                   <td className="py-2 pr-2 text-right">
                     <NumberInput
@@ -162,7 +170,8 @@ export default function Loans({ loans, assets, onChange }: Props) {
         Mortgages and other debt — amortized monthly (interest accrues, then the payment reduces
         the balance). Payments stop automatically once paid off. Overpay via a one-off event below.
         Link a loan to an asset (set up on the Investments &amp; Assets tab) to see the equity you
-        actually have.
+        actually have. Use the rate's schedule button for a fixed-rate deal ending or a planned
+        remortgage.
       </p>
 
       <OwnerGroupedList

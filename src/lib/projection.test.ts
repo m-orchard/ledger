@@ -27,11 +27,18 @@ function baseData(overrides: Partial<AppData> = {}): AppData {
   };
 }
 
-/** Returns an ISO date string `monthsFromNow` months after today, for one-off event fixtures. */
+/**
+ * Returns an ISO date string `monthsFromNow` months after today (day 1), for
+ * one-off event fixtures. Built from local Y/M/D directly rather than via
+ * `toISOString()`, which converts to UTC and can shift the date by a day (or,
+ * for day 1, a whole month) depending on the timezone offset and current
+ * time-of-day — the same class of bug fixed in `projection.ts`'s
+ * `parseLocalDate`.
+ */
 function isoDateMonthsFromNow(monthsFromNow: number): string {
   const d = new Date();
   d.setMonth(d.getMonth() + monthsFromNow, 1);
-  return d.toISOString().slice(0, 10);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`;
 }
 
 describe('runProjection — account growth', () => {
@@ -75,6 +82,64 @@ describe('runProjection — account growth', () => {
     const points = runProjection(weekly);
     // 100/wk * 52/12 = 433.33/mo, over 12 months (months 1..12 contribute, month 0 is the start)
     expect(points[12].accountBalances.a1).toBeCloseTo(((100 * 52) / 12) * 12, 6);
+  });
+
+  it('reverts a fixed-term account to a scheduled rate once its date has passed', () => {
+    const data = baseData({
+      settings: { ...baseData().settings, projectionEndAge: 30 + 6 / 12 },
+      accounts: [
+        {
+          id: 'a1',
+          name: 'Fixed bond',
+          type: 'savings',
+          balance: 10000,
+          annualGrowthRate: 12,
+          contributionAmount: 0,
+          contributionFrequency: 'monthly',
+          ownerId: SHARED_OWNER,
+          rateChanges: [{ id: 'c1', date: isoDateMonthsFromNow(3), rate: 0 }],
+        },
+      ],
+    });
+
+    const points = runProjection(data);
+    // A change dated for month 3 takes effect starting that month (not the month after) —
+    // so only months 1-2 compound at the base 12% rate before it reverts to 0%.
+    const monthlyRate = Math.pow(1.12, 1 / 12) - 1;
+    const atChange = 10000 * Math.pow(1 + monthlyRate, 2);
+    expect(points[3].accountBalances.a1).toBeCloseTo(atChange, 6);
+    // The scheduled rate is 0%, so the balance stays flat from month 3 onward
+    expect(points[6].accountBalances.a1).toBeCloseTo(atChange, 6);
+  });
+
+  it('uses the latest applicable rate when several changes are scheduled, regardless of array order', () => {
+    const data = baseData({
+      settings: { ...baseData().settings, projectionEndAge: 30 + 6 / 12 },
+      accounts: [
+        {
+          id: 'a1',
+          name: 'Tracker',
+          type: 'savings',
+          balance: 10000,
+          annualGrowthRate: 0,
+          contributionAmount: 0,
+          contributionFrequency: 'monthly',
+          ownerId: SHARED_OWNER,
+          rateChanges: [
+            // Listed out of chronological order on purpose — the later date should still win once both have passed.
+            { id: 'c1', date: isoDateMonthsFromNow(4), rate: 10 },
+            { id: 'c2', date: isoDateMonthsFromNow(2), rate: 5 },
+          ],
+        },
+      ],
+    });
+
+    const points = runProjection(data);
+    // Month 1 at base 0%, months 2-3 at 5% (c2), months 4-6 at 10% (c1)
+    const atC2 = 10000 * Math.pow(1 + (Math.pow(1.05, 1 / 12) - 1), 2);
+    const atEnd = atC2 * Math.pow(1 + (Math.pow(1.1, 1 / 12) - 1), 3);
+    expect(points[3].accountBalances.a1).toBeCloseTo(atC2, 6);
+    expect(points[6].accountBalances.a1).toBeCloseTo(atEnd, 6);
   });
 });
 
@@ -317,6 +382,32 @@ describe('runProjection — assets', () => {
     expect(points[adjustmentMonth].assetBalances.house).toBe(320000);
   });
 
+  it('applies a scheduled rate change to an asset', () => {
+    const data = baseData({
+      settings: { ...baseData().settings, projectionEndAge: 30 + 6 / 12 },
+      assets: [
+        {
+          id: 'car',
+          name: 'Car',
+          value: 20000,
+          annualGrowthRate: -20,
+          ownerId: SHARED_OWNER,
+          rateChanges: [{ id: 'c1', date: isoDateMonthsFromNow(3), rate: -5 }],
+        },
+      ],
+    });
+
+    const points = runProjection(data);
+    // The change (dated for month 3) takes effect starting that month, so only months 1-2
+    // depreciate at the base -20% rate before it slows to -5%.
+    const rate1 = Math.pow(1 - 0.2, 1 / 12) - 1;
+    const rate2 = Math.pow(1 - 0.05, 1 / 12) - 1;
+    const atChange = 20000 * Math.pow(1 + rate1, 2) * Math.pow(1 + rate2, 1);
+    const atEnd = atChange * Math.pow(1 + rate2, 3);
+    expect(points[3].assetBalances.car).toBeCloseTo(atChange, 3);
+    expect(points[6].assetBalances.car).toBeCloseTo(atEnd, 3);
+  });
+
   it('includes assets in total net worth alongside accounts and loans', () => {
     const data = baseData({
       accounts: [
@@ -378,6 +469,31 @@ describe('runProjection — loans', () => {
     expect(points[5].loanBalances.l1).toBe(0);
     // Once paid off, the loan no longer costs anything each month
     expect(points[5].monthlyExpenses).toBe(0);
+  });
+
+  it('applies a scheduled rate change to a loan (e.g. a fixed-rate deal ending)', () => {
+    const data = baseData({
+      settings: { ...baseData().settings, projectionEndAge: 30 + 6 / 12 },
+      loans: [
+        {
+          id: 'l1',
+          name: 'Mortgage',
+          balance: 200000,
+          originalAmount: 200000,
+          annualInterestRate: 0,
+          monthlyPayment: 0,
+          ownerId: SHARED_OWNER,
+          rateChanges: [{ id: 'c1', date: isoDateMonthsFromNow(3), rate: 6 }],
+        },
+      ],
+    });
+
+    const points = runProjection(data);
+    // No interest for months 1-2 (rate 0%); the change (dated for month 3) takes effect
+    // that month, so interest starts accruing at 6%/yr from month 3 onward.
+    expect(points[2].loanBalances.l1).toBeCloseTo(200000, 6);
+    expect(points[3].loanBalances.l1).toBeGreaterThan(200000);
+    expect(points[6].loanBalances.l1).toBeGreaterThan(points[3].loanBalances.l1);
   });
 
   it('nets loan balances out of total net worth', () => {

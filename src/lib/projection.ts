@@ -1,10 +1,37 @@
-import type { AppData, ProjectionPoint } from '../types';
+import type { AppData, ProjectionPoint, RateChange } from '../types';
 import { calcSalaryBreakdown, calcBonusNet } from './tax';
 import { toMonthlyAmount } from './frequency';
 import { calcLisaBonus } from './lisa';
 
 function sameMonth(a: Date, b: Date): boolean {
   return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth();
+}
+
+/**
+ * Parses an ISO "YYYY-MM-DD" string as a local date. `new Date(isoString)`
+ * parses date-only strings as UTC midnight, but every other date in this
+ * module is built from local calendar components (`new Date(y, m, d)`) — mixing
+ * the two shifts comparisons by a day (or a whole month, near a month
+ * boundary) depending on the browser's timezone offset from UTC.
+ */
+function parseLocalDate(iso: string): Date {
+  const [y, m, d] = iso.split('-').map(Number);
+  return new Date(y, m - 1, d);
+}
+
+/** The rate in effect for `date`, given a base rate and any scheduled future changes — the latest change dated on or before `date` wins. */
+function effectiveRate(baseRate: number, changes: RateChange[] | undefined, date: Date): number {
+  if (!changes || changes.length === 0) return baseRate;
+  let rate = baseRate;
+  let latest: Date | null = null;
+  for (const c of changes) {
+    const d = parseLocalDate(c.date);
+    if (d <= date && (!latest || d > latest)) {
+      rate = c.rate;
+      latest = d;
+    }
+  }
+  return rate;
 }
 
 /**
@@ -78,7 +105,7 @@ export function runProjection(data: AppData): ProjectionPoint[] {
     if (m > 0) {
       // 1. Apply growth (converted from annual to a compounding monthly rate)
       accounts.forEach((a) => {
-        const monthlyRate = Math.pow(1 + a.annualGrowthRate / 100, 1 / 12) - 1;
+        const monthlyRate = Math.pow(1 + effectiveRate(a.annualGrowthRate, a.rateChanges, date) / 100, 1 / 12) - 1;
         balances[a.id] = balances[a.id] * (1 + monthlyRate);
       });
 
@@ -96,7 +123,7 @@ export function runProjection(data: AppData): ProjectionPoint[] {
 
       // 3b. Apply asset growth/depreciation, then one-off events targeted at an asset
       assets.forEach((a) => {
-        const monthlyRate = Math.pow(1 + a.annualGrowthRate / 100, 1 / 12) - 1;
+        const monthlyRate = Math.pow(1 + effectiveRate(a.annualGrowthRate, a.rateChanges, date) / 100, 1 / 12) - 1;
         assetBalances[a.id] = assetBalances[a.id] * (1 + monthlyRate);
       });
       eventsThisMonth.forEach((e) => {
@@ -108,7 +135,7 @@ export function runProjection(data: AppData): ProjectionPoint[] {
       // 4. Accrue loan interest, then make the regular payment (capped at the
       // remaining balance so payments — and their cost — stop at payoff)
       loans.forEach((l) => {
-        const monthlyRate = Math.pow(1 + l.annualInterestRate / 100, 1 / 12) - 1;
+        const monthlyRate = Math.pow(1 + effectiveRate(l.annualInterestRate, l.rateChanges, date) / 100, 1 / 12) - 1;
         loanBalances[l.id] += loanBalances[l.id] * monthlyRate;
         const payment = Math.min(l.monthlyPayment, loanBalances[l.id]);
         loanBalances[l.id] -= payment;

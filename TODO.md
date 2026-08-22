@@ -5,9 +5,7 @@
 - [x] **WOLF pension**: found the real current pot value (£38,805.52 vs the
       £30,538 that was actually total contributions). Money-weighted return
       from the actual 2022/23-2026/27 contribution history works out to
-      ~13.9%/year. Still to do: update the account's balance (£38,805.52) and
-      growth rate in the app — leaning toward something tempered below 13.9%
-      (e.g. 8-11%) for a 28-year forward assumption.
+      ~13.9%/year. Balance and growth rate updated in the app.
 - [ ] Sanity-check the other overinflated growth rates the same way (Scott
       Logic pension, Trading 212 GIA, Moneybox GIA, Changing Lives pension) —
       these were originally set using 1-year "performance" figures, which are
@@ -35,13 +33,23 @@
 - [x] **One-off payments on debt** — confirmed already supported (One-off
       Events can target a loan as an extra repayment: fixed monthly payment,
       earlier payoff). No change needed.
-- [ ] **Variable loan rates over time**: mortgages (and maybe other loans)
-      often have a fixed-rate period that ends and reverts to a different
-      rate, or scheduled rate changes at renewal — currently a loan only has
-      one flat rate for the whole projection.
-- [ ] **Limited-term accounts/investments**: fixed-term bonds/deposits that
-      lock money for a set period at a set rate, then mature — currently all
-      accounts compound indefinitely with no maturity behaviour.
+- [x] **Variable rates over time**: generalised beyond loans to accounts,
+      pensions/LISAs, assets, and loans alike — a new shared `RateChange {
+      id, date, rate }` type, held as an optional `rateChanges[]` on
+      `Account`/`Asset`/`Loan`. The projection engine's `effectiveRate`
+      helper picks the latest scheduled change on or before the current
+      month (falling back to the base rate), applied wherever a flat rate
+      was read before (account/asset growth, loan interest). This supersedes
+      last turn's account-only `maturityDate`/`postMaturityGrowthRate` pair
+      (migrated forward automatically). Edited via a small "+ schedule" /
+      "N changes" button next to each rate field, opening the app's first
+      `Modal` popup with a `RateSchedule` list editor (add/edit/remove
+      date+rate rows) — chosen over more table columns since it doesn't
+      scale past one change and clutters the common no-schedule case.
+- [x] **Limited-term accounts/investments**: a fixed-term bond/deposit
+      maturing into a different rate is now just a one-entry case of
+      "Variable rates over time" above (a single scheduled `RateChange`) —
+      folded into that feature rather than kept as its own mechanism.
 - [ ] **Per-account growth chart**: visualise net worth over time for one or
       a chosen subset of accounts/savings, not just the total (the dashboard
       chart currently only plots the combined total).

@@ -10,6 +10,7 @@ import AddWithOwner from './AddWithOwner';
 import Card from './Card';
 import RemoveButton from './RemoveButton';
 import OwnerGroupedList from './OwnerGroupedList';
+import RateSchedule from './RateSchedule';
 
 interface Props {
   accounts: Account[];
@@ -113,12 +114,19 @@ export default function Accounts({ accounts, onChange }: Props) {
                   />
                 </td>
                 <td className="py-2 pr-2 text-right">
-                  <NumberInput
-                    value={a.annualGrowthRate}
-                    onChange={(annualGrowthRate) => update(a.id, { annualGrowthRate })}
-                    className="w-16 bg-transparent text-right font-mono tabular focus:outline-none"
-                  />
-                  <span className="text-inkfaint text-xs">%</span>
+                  <div className="flex items-center justify-end gap-1">
+                    <NumberInput
+                      value={a.annualGrowthRate}
+                      onChange={(annualGrowthRate) => update(a.id, { annualGrowthRate })}
+                      className="w-16 bg-transparent text-right font-mono tabular focus:outline-none"
+                    />
+                    <span className="text-inkfaint text-xs">%</span>
+                    <RateSchedule
+                      label={`${a.name || 'Account'} — growth rate changes`}
+                      changes={a.rateChanges ?? []}
+                      onChange={(rateChanges) => update(a.id, { rateChanges })}
+                    />
+                  </div>
                 </td>
                 <td className="py-2 pr-2 text-right">
                   <div className="flex items-center justify-end gap-1">
@@ -173,7 +181,8 @@ export default function Accounts({ accounts, onChange }: Props) {
       <p className="text-xs text-inkfaint mb-4">
         ISAs, savings, and other accounts — each with its own growth assumption and regular
         contribution. Pensions and Lifetime ISAs are above, since they both get money on top of
-        what you put in.
+        what you put in. Use the rate's schedule button to add future changes — a fixed-term
+        bond maturing into a lower rate, for example.
       </p>
 
       <OwnerGroupedList

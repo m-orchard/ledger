@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { migrations, CURRENT_SCHEMA_VERSION } from './migrations';
 import { SHARED_OWNER } from '../types';
+import { todayISO } from './date';
 
 function migrateFrom(schemaVersion: number, data: any) {
   let result = data;
@@ -344,6 +345,41 @@ describe('migrations', () => {
     expect(result.accounts[0].maturityDate).toBeUndefined();
     expect(result.accounts[0].postMaturityGrowthRate).toBeUndefined();
     expect(result.accounts[1].rateChanges).toEqual([]);
+  });
+
+  it('upgrades a v10 blob, backfilling balanceAsOf/valueAsOf to today', () => {
+    const v10 = {
+      income: [],
+      expenses: [],
+      accounts: [
+        { id: 'a1', name: 'Savings', type: 'cash', balance: 500, annualGrowthRate: 2, contributionAmount: 0, contributionFrequency: 'monthly', ownerId: SHARED_OWNER },
+      ],
+      assets: [
+        { id: 'as1', name: 'Car', value: 15000, annualGrowthRate: -10, ownerId: SHARED_OWNER },
+      ],
+      salaries: [],
+      loans: [
+        { id: 'l1', name: 'Loan', balance: 5000, originalAmount: 5000, annualInterestRate: 5, monthlyPayment: 200, ownerId: SHARED_OWNER },
+      ],
+      oneOffs: [],
+      people: [],
+      settings: {
+        currentAge: 35,
+        retirementAge: 65,
+        projectionEndAge: 90,
+        inflationRate: 2.5,
+        currency: 'GBP',
+        tax: { incomeTaxBands: [], personalAllowanceTaperStart: 100000, niPrimaryThreshold: 12570, niUpperEarningsLimit: 50270, niMainRate: 8, niUpperRate: 2 },
+        sharedColor: '#94a3b8',
+      },
+    };
+
+    const result = migrateFrom(10, v10);
+    const today = todayISO();
+
+    expect(result.accounts[0].balanceAsOf).toBe(today);
+    expect(result.assets[0].valueAsOf).toBe(today);
+    expect(result.loans[0].balanceAsOf).toBe(today);
   });
 
   it('leaves an already-current blob effectively unchanged', () => {

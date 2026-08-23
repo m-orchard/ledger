@@ -36,6 +36,8 @@ function tabFromHash(): Tab {
 export default function App() {
   const [data, setData] = usePersistedData(buildDefaultData());
   const [tab, setTab] = useState<Tab>(tabFromHash);
+  // Lifted out of NetWorthChart so it survives switching away from the Dashboard tab and back.
+  const [hiddenChartSeries, setHiddenChartSeries] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     // Normalise a missing/invalid hash on first load so the URL always reflects the active tab.
@@ -57,6 +59,7 @@ export default function App() {
   const points = useMemo(() => runProjection(data), [data]);
   const yearlyPoints = useMemo(() => toYearlyPoints(points), [points]);
   const atRetirement = pointAtAge(points, data.settings.retirementAge);
+  const showReal = data.settings.showRealValues ?? true;
   const currentAccountBalances = data.accounts.reduce((s, a) => s + a.balance, 0);
   const currentAssetValue = data.assets.reduce((s, a) => s + a.value, 0);
   const currentDebt = data.loans.reduce((s, l) => s + l.balance, 0);
@@ -121,14 +124,45 @@ export default function App() {
         >
           {tab === 'dashboard' && (
             <>
+              <div className="flex items-center gap-2 text-xs font-mono">
+                <span className="text-inkfaint">Values:</span>
+                <button
+                  onClick={() => setData({ ...data, settings: { ...data.settings, showRealValues: true } })}
+                  className={`px-2 py-1 rounded-sm border ${
+                    showReal ? 'border-brass text-ink font-medium' : 'border-rule text-inkfaint hover:text-ink'
+                  }`}
+                >
+                  Today's money
+                </button>
+                <button
+                  onClick={() => setData({ ...data, settings: { ...data.settings, showRealValues: false } })}
+                  className={`px-2 py-1 rounded-sm border ${
+                    !showReal ? 'border-brass text-ink font-medium' : 'border-rule text-inkfaint hover:text-ink'
+                  }`}
+                >
+                  Nominal
+                </button>
+              </div>
               <SummaryCards
                 currentNetWorth={currentNetWorth}
                 currentDebt={currentDebt}
                 atRetirement={atRetirement}
                 retirementAge={data.settings.retirementAge}
                 monthlyCashSurplus={monthlyCashSurplus}
+                showReal={showReal}
               />
-              <NetWorthChart points={yearlyPoints} retirementAge={data.settings.retirementAge} />
+              <NetWorthChart
+                points={yearlyPoints}
+                retirementAge={data.settings.retirementAge}
+                currentAge={data.settings.currentAge}
+                accounts={data.accounts}
+                assets={data.assets}
+                loans={data.loans}
+                oneOffs={data.oneOffs}
+                showReal={showReal}
+                hidden={hiddenChartSeries}
+                onHiddenChange={setHiddenChartSeries}
+              />
               {monthlyCashSurplus < 0 && (
                 <div className="bg-brick/10 border border-brick/40 rounded-sm p-4 text-sm text-brick">
                   Your income doesn't currently cover your outgoings plus planned contributions —

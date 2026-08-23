@@ -2,11 +2,13 @@ import type { AppData } from '../types';
 import { SHARED_OWNER, PERSON_COLOR_PALETTE, DEFAULT_SHARED_COLOR } from '../types';
 import { newId } from '../lib/storage';
 import { DEFAULT_TAX_SETTINGS } from '../lib/tax';
+import { todayISO } from '../lib/date';
 
 export function buildDefaultData(): AppData {
   const pensionAccountId = newId();
   const houseId = newId();
   const meId = newId();
+  const today = todayISO();
 
   return {
     income: [],
@@ -21,6 +23,7 @@ export function buildDefaultData(): AppData {
         name: 'Workplace pension',
         type: 'pension',
         balance: 25000,
+        balanceAsOf: today,
         annualGrowthRate: 5,
         contributionAmount: 0,
         contributionFrequency: 'monthly',
@@ -31,6 +34,7 @@ export function buildDefaultData(): AppData {
         name: 'Stocks & Shares ISA',
         type: 'stocks-isa',
         balance: 8000,
+        balanceAsOf: today,
         annualGrowthRate: 6,
         contributionAmount: 300,
         contributionFrequency: 'monthly',
@@ -41,6 +45,7 @@ export function buildDefaultData(): AppData {
         name: 'Cash savings',
         type: 'cash',
         balance: 6000,
+        balanceAsOf: today,
         annualGrowthRate: 3,
         contributionAmount: 100,
         contributionFrequency: 'monthly',
@@ -65,6 +70,7 @@ export function buildDefaultData(): AppData {
         id: houseId,
         name: 'House',
         value: 300000,
+        valueAsOf: today,
         annualGrowthRate: 3,
         ownerId: SHARED_OWNER,
       },
@@ -74,6 +80,7 @@ export function buildDefaultData(): AppData {
         id: newId(),
         name: 'Mortgage',
         balance: 220000,
+        balanceAsOf: today,
         originalAmount: 240000,
         annualInterestRate: 4.5,
         monthlyPayment: 1200,

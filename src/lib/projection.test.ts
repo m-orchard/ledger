@@ -41,6 +41,9 @@ function isoDateMonthsFromNow(monthsFromNow: number): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`;
 }
 
+/** "As of" fixture value meaning "no catch-up needed" — tests not about the as-of mechanism itself use this everywhere. */
+const TODAY = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}-${String(new Date().getDate()).padStart(2, '0')}`;
+
 describe('runProjection — account growth', () => {
   it('compounds an account at its annual growth rate over a year with no contributions', () => {
     const data = baseData({
@@ -49,7 +52,7 @@ describe('runProjection — account growth', () => {
           id: 'a1',
           name: 'ISA',
           type: 'stocks-isa',
-          balance: 10000,
+          balance: 10000, balanceAsOf: TODAY,
           annualGrowthRate: 12,
           contributionAmount: 0,
           contributionFrequency: 'monthly',
@@ -70,7 +73,7 @@ describe('runProjection — account growth', () => {
           id: 'a1',
           name: 'Savings',
           type: 'cash',
-          balance: 0,
+          balance: 0, balanceAsOf: TODAY,
           annualGrowthRate: 0,
           contributionAmount: 100,
           contributionFrequency: 'weekly',
@@ -92,7 +95,7 @@ describe('runProjection — account growth', () => {
           id: 'a1',
           name: 'Fixed bond',
           type: 'savings',
-          balance: 10000,
+          balance: 10000, balanceAsOf: TODAY,
           annualGrowthRate: 12,
           contributionAmount: 0,
           contributionFrequency: 'monthly',
@@ -120,7 +123,7 @@ describe('runProjection — account growth', () => {
           id: 'a1',
           name: 'Tracker',
           type: 'savings',
-          balance: 10000,
+          balance: 10000, balanceAsOf: TODAY,
           annualGrowthRate: 0,
           contributionAmount: 0,
           contributionFrequency: 'monthly',
@@ -141,6 +144,52 @@ describe('runProjection — account growth', () => {
     expect(points[3].accountBalances.a1).toBeCloseTo(atC2, 6);
     expect(points[6].accountBalances.a1).toBeCloseTo(atEnd, 6);
   });
+
+  it('fast-forwards a balance from its "as of" date to today before projecting forward', () => {
+    const data = baseData({
+      accounts: [
+        {
+          id: 'a1',
+          name: 'Savings',
+          type: 'cash',
+          balance: 10000,
+          balanceAsOf: isoDateMonthsFromNow(-3),
+          annualGrowthRate: 12,
+          contributionAmount: 100,
+          contributionFrequency: 'monthly',
+          ownerId: SHARED_OWNER,
+        },
+      ],
+    });
+
+    const points = runProjection(data);
+    const monthlyRate = Math.pow(1.12, 1 / 12) - 1;
+    let expected = 10000;
+    for (let i = 0; i < 3; i++) expected = expected * (1 + monthlyRate) + 100;
+    // The catch-up already happened by "today" (month 0), before any of the requested projection runs
+    expect(points[0].accountBalances.a1).toBeCloseTo(expected, 6);
+  });
+
+  it('does not fast-forward a balance whose "as of" date is this month or later', () => {
+    const data = baseData({
+      accounts: [
+        {
+          id: 'a1',
+          name: 'Savings',
+          type: 'cash',
+          balance: 10000,
+          balanceAsOf: TODAY,
+          annualGrowthRate: 12,
+          contributionAmount: 100,
+          contributionFrequency: 'monthly',
+          ownerId: SHARED_OWNER,
+        },
+      ],
+    });
+
+    const points = runProjection(data);
+    expect(points[0].accountBalances.a1).toBe(10000);
+  });
 });
 
 describe('runProjection — lifetime ISA', () => {
@@ -152,7 +201,7 @@ describe('runProjection — lifetime ISA', () => {
           id: 'lisa',
           name: 'LISA',
           type: 'lifetime-isa',
-          balance: 0,
+          balance: 0, balanceAsOf: TODAY,
           annualGrowthRate: 0,
           contributionAmount: 200,
           contributionFrequency: 'monthly',
@@ -174,7 +223,7 @@ describe('runProjection — lifetime ISA', () => {
           id: 'lisa',
           name: 'LISA',
           type: 'lifetime-isa',
-          balance: 0,
+          balance: 0, balanceAsOf: TODAY,
           annualGrowthRate: 0,
           contributionAmount: 1000,
           contributionFrequency: 'monthly',
@@ -195,7 +244,7 @@ describe('runProjection — lifetime ISA', () => {
           id: 'lisa',
           name: 'LISA',
           type: 'lifetime-isa',
-          balance: 0,
+          balance: 0, balanceAsOf: TODAY,
           annualGrowthRate: 0,
           contributionAmount: 200,
           contributionFrequency: 'monthly',
@@ -219,7 +268,7 @@ describe('runProjection — salaries', () => {
           id: 'pension',
           name: 'Workplace pension',
           type: 'pension',
-          balance: 0,
+          balance: 0, balanceAsOf: TODAY,
           annualGrowthRate: 0,
           contributionAmount: 0,
           contributionFrequency: 'monthly',
@@ -253,7 +302,7 @@ describe('runProjection — salaries', () => {
           id: 'pension',
           name: 'Workplace pension',
           type: 'pension',
-          balance: 0,
+          balance: 0, balanceAsOf: TODAY,
           annualGrowthRate: 0,
           contributionAmount: 0,
           contributionFrequency: 'monthly',
@@ -340,7 +389,7 @@ describe('runProjection — assets', () => {
   it('compounds an asset at its own annual growth rate', () => {
     const data = baseData({
       assets: [
-        { id: 'house', name: 'House', value: 300000, annualGrowthRate: 12, ownerId: SHARED_OWNER },
+        { id: 'house', name: 'House', value: 300000, valueAsOf: TODAY, annualGrowthRate: 12, ownerId: SHARED_OWNER },
       ],
     });
 
@@ -351,7 +400,7 @@ describe('runProjection — assets', () => {
   it('depreciates an asset with a negative growth rate', () => {
     const data = baseData({
       assets: [
-        { id: 'car', name: 'Car', value: 20000, annualGrowthRate: -15, ownerId: SHARED_OWNER },
+        { id: 'car', name: 'Car', value: 20000, valueAsOf: TODAY, annualGrowthRate: -15, ownerId: SHARED_OWNER },
       ],
     });
 
@@ -364,7 +413,7 @@ describe('runProjection — assets', () => {
     const data = baseData({
       settings: { ...baseData().settings, projectionEndAge: 31 },
       assets: [
-        { id: 'house', name: 'House', value: 300000, annualGrowthRate: 0, ownerId: SHARED_OWNER },
+        { id: 'house', name: 'House', value: 300000, valueAsOf: TODAY, annualGrowthRate: 0, ownerId: SHARED_OWNER },
       ],
       oneOffs: [
         {
@@ -389,7 +438,7 @@ describe('runProjection — assets', () => {
         {
           id: 'car',
           name: 'Car',
-          value: 20000,
+          value: 20000, valueAsOf: TODAY,
           annualGrowthRate: -20,
           ownerId: SHARED_OWNER,
           rateChanges: [{ id: 'c1', date: isoDateMonthsFromNow(3), rate: -5 }],
@@ -408,6 +457,19 @@ describe('runProjection — assets', () => {
     expect(points[6].assetBalances.car).toBeCloseTo(atEnd, 3);
   });
 
+  it('fast-forwards an asset value from its "as of" date to today', () => {
+    const data = baseData({
+      assets: [
+        { id: 'house', name: 'House', value: 300000, valueAsOf: isoDateMonthsFromNow(-2), annualGrowthRate: 6, ownerId: SHARED_OWNER },
+      ],
+    });
+
+    const points = runProjection(data);
+    const monthlyRate = Math.pow(1.06, 1 / 12) - 1;
+    const expected = 300000 * Math.pow(1 + monthlyRate, 2);
+    expect(points[0].assetBalances.house).toBeCloseTo(expected, 3);
+  });
+
   it('includes assets in total net worth alongside accounts and loans', () => {
     const data = baseData({
       accounts: [
@@ -415,7 +477,7 @@ describe('runProjection — assets', () => {
           id: 'a1',
           name: 'Savings',
           type: 'cash',
-          balance: 5000,
+          balance: 5000, balanceAsOf: TODAY,
           annualGrowthRate: 0,
           contributionAmount: 0,
           contributionFrequency: 'monthly',
@@ -423,13 +485,13 @@ describe('runProjection — assets', () => {
         },
       ],
       assets: [
-        { id: 'house', name: 'House', value: 300000, annualGrowthRate: 0, ownerId: SHARED_OWNER },
+        { id: 'house', name: 'House', value: 300000, valueAsOf: TODAY, annualGrowthRate: 0, ownerId: SHARED_OWNER },
       ],
       loans: [
         {
           id: 'l1',
           name: 'Mortgage',
-          balance: 220000,
+          balance: 220000, balanceAsOf: TODAY,
           originalAmount: 220000,
           annualInterestRate: 0,
           monthlyPayment: 0,
@@ -453,7 +515,7 @@ describe('runProjection — loans', () => {
         {
           id: 'l1',
           name: 'Small loan',
-          balance: 1000,
+          balance: 1000, balanceAsOf: TODAY,
           originalAmount: 1000,
           annualInterestRate: 0,
           monthlyPayment: 300,
@@ -471,6 +533,32 @@ describe('runProjection — loans', () => {
     expect(points[5].monthlyExpenses).toBe(0);
   });
 
+  it('fast-forwards a loan balance from its "as of" date to today (interest accrued, payments made)', () => {
+    const data = baseData({
+      loans: [
+        {
+          id: 'l1',
+          name: 'Mortgage',
+          balance: 200000,
+          balanceAsOf: isoDateMonthsFromNow(-3),
+          originalAmount: 200000,
+          annualInterestRate: 6,
+          monthlyPayment: 1000,
+          ownerId: SHARED_OWNER,
+        },
+      ],
+    });
+
+    const points = runProjection(data);
+    const monthlyRate = Math.pow(1.06, 1 / 12) - 1;
+    let expected = 200000;
+    for (let i = 0; i < 3; i++) {
+      expected += expected * monthlyRate;
+      expected -= Math.min(1000, expected);
+    }
+    expect(points[0].loanBalances.l1).toBeCloseTo(expected, 6);
+  });
+
   it('applies a scheduled rate change to a loan (e.g. a fixed-rate deal ending)', () => {
     const data = baseData({
       settings: { ...baseData().settings, projectionEndAge: 30 + 6 / 12 },
@@ -478,7 +566,7 @@ describe('runProjection — loans', () => {
         {
           id: 'l1',
           name: 'Mortgage',
-          balance: 200000,
+          balance: 200000, balanceAsOf: TODAY,
           originalAmount: 200000,
           annualInterestRate: 0,
           monthlyPayment: 0,
@@ -503,7 +591,7 @@ describe('runProjection — loans', () => {
           id: 'a1',
           name: 'Savings',
           type: 'cash',
-          balance: 5000,
+          balance: 5000, balanceAsOf: TODAY,
           annualGrowthRate: 0,
           contributionAmount: 0,
           contributionFrequency: 'monthly',
@@ -514,7 +602,7 @@ describe('runProjection — loans', () => {
         {
           id: 'l1',
           name: 'Loan',
-          balance: 2000,
+          balance: 2000, balanceAsOf: TODAY,
           originalAmount: 2000,
           annualInterestRate: 0,
           monthlyPayment: 0,
@@ -536,7 +624,7 @@ describe('runProjection — loans', () => {
         {
           id: 'l1',
           name: 'Loan',
-          balance: 1000,
+          balance: 1000, balanceAsOf: TODAY,
           originalAmount: 1000,
           annualInterestRate: 0,
           monthlyPayment: 100,
@@ -559,5 +647,35 @@ describe('runProjection — loans', () => {
     // Without the overpayment, balance after month 2 would be 1000 - 200 = 800.
     // With a 300 extra repayment that same month: 800 - 300 = 500.
     expect(points[overpaymentMonth].loanBalances.l1).toBeCloseTo(500, 6);
+  });
+});
+
+describe('runProjection — inflation', () => {
+  it('exposes an inflationFactor consistent with totalNetWorthReal, compounding annually', () => {
+    const data = baseData({
+      settings: { ...baseData().settings, inflationRate: 10, projectionEndAge: 32 },
+      accounts: [
+        {
+          id: 'a1',
+          name: 'Savings',
+          type: 'cash',
+          balance: 1000,
+          balanceAsOf: TODAY,
+          annualGrowthRate: 0,
+          contributionAmount: 0,
+          contributionFrequency: 'monthly',
+          ownerId: SHARED_OWNER,
+        },
+      ],
+    });
+
+    const points = runProjection(data);
+    expect(points[0].inflationFactor).toBeCloseTo(1, 6);
+    expect(points[12].inflationFactor).toBeCloseTo(1.1, 6);
+    expect(points[24].inflationFactor).toBeCloseTo(1.21, 6);
+    // totalNetWorthReal is always the nominal figure divided by that same factor
+    points.forEach((p) => {
+      expect(p.totalNetWorthReal).toBeCloseTo(p.totalNetWorth / p.inflationFactor, 6);
+    });
   });
 });

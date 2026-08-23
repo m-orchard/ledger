@@ -8,6 +8,8 @@ interface Props {
   atRetirement: ProjectionPoint | undefined;
   retirementAge: number;
   monthlyCashSurplus: number;
+  /** Whether the "at retirement" figure leads with inflation-adjusted ("today's money") or nominal values. */
+  showReal: boolean;
 }
 
 function Card({
@@ -43,15 +45,22 @@ export default function SummaryCards({
   atRetirement,
   retirementAge,
   monthlyCashSurplus,
+  showReal,
 }: Props) {
   const { currency } = useAppSettings();
+  const retirementValue = atRetirement && (showReal ? atRetirement.totalNetWorthReal : atRetirement.totalNetWorth);
+  const retirementOther = atRetirement && (showReal ? atRetirement.totalNetWorth : atRetirement.totalNetWorthReal);
   return (
     <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
       <Card label="Net worth today" value={formatCurrency(currentNetWorth, currency)} />
       <Card
         label={`At age ${formatAge(retirementAge)}`}
-        value={atRetirement ? formatCurrency(atRetirement.totalNetWorth, currency) : '—'}
-        sub={atRetirement ? `${formatCurrency(atRetirement.totalNetWorthReal, currency)} in today's money` : undefined}
+        value={atRetirement ? formatCurrency(retirementValue as number, currency) : '—'}
+        sub={
+          atRetirement
+            ? `${formatCurrency(retirementOther as number, currency)} ${showReal ? 'in future pounds' : "in today's money"}`
+            : undefined
+        }
         tone="brass"
       />
       <Card

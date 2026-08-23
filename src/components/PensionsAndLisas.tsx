@@ -3,6 +3,7 @@ import { newId } from '../lib/storage';
 import { formatCurrency } from '../lib/format';
 import { toMonthlyAmount } from '../lib/frequency';
 import { selectOnFocus } from '../lib/selectOnFocus';
+import { todayISO } from '../lib/date';
 import { calcSalaryBreakdown } from '../lib/tax';
 import { calcLisaBonus, LISA_ANNUAL_CONTRIBUTION_CAP } from '../lib/lisa';
 import { useAppSettings } from '../lib/AppSettingsContext';
@@ -41,6 +42,7 @@ export default function PensionsAndLisas({ accounts, salaries, tax, onChange }: 
           name: '',
           type,
           balance: 0,
+          balanceAsOf: todayISO(),
           annualGrowthRate: defaultGrowthRate,
           contributionAmount: 0,
           contributionFrequency: 'monthly',
@@ -100,6 +102,14 @@ export default function PensionsAndLisas({ accounts, salaries, tax, onChange }: 
             className="w-24 bg-transparent text-right font-mono tabular focus:outline-none"
           />
         </td>
+        <td className="py-2 pr-2">
+          <input
+            type="date"
+            value={a.balanceAsOf}
+            onChange={(e) => update(a.id, { balanceAsOf: e.target.value })}
+            className="bg-transparent text-sm font-mono focus:outline-none"
+          />
+        </td>
         <td className="py-2 pr-2 text-right">
           <div className="flex items-center justify-end gap-1">
             <NumberInput
@@ -134,6 +144,7 @@ export default function PensionsAndLisas({ accounts, salaries, tax, onChange }: 
             <tr className="text-left text-xs text-inkfaint border-b border-rule">
               <th className="pb-2 pr-3 font-normal">Name</th>
               <th className="pb-2 pr-3 font-normal text-right">Balance</th>
+              <th className="pb-2 pr-3 font-normal">As of</th>
               <th className="pb-2 pr-3 font-normal text-right">Growth/yr</th>
               <th className="pb-2 pr-3 font-normal text-right">Contribution/mo</th>
               <th className="pb-2"></th>
@@ -143,7 +154,7 @@ export default function PensionsAndLisas({ accounts, salaries, tax, onChange }: 
           {list.length > 0 && (
             <tfoot>
               <tr>
-                <td colSpan={3} className="pt-2 text-xs text-inkfaint">Total monthly contributions</td>
+                <td colSpan={4} className="pt-2 text-xs text-inkfaint">Total monthly contributions</td>
                 <td className="pt-2 text-right font-mono text-xs tabular text-teal">
                   {formatCurrency(contribution, currency)}
                 </td>
@@ -177,6 +188,14 @@ export default function PensionsAndLisas({ accounts, salaries, tax, onChange }: 
             value={a.balance}
             onChange={(balance) => update(a.id, { balance })}
             className="w-24 bg-transparent text-right font-mono tabular focus:outline-none"
+          />
+        </td>
+        <td className="py-2 pr-2">
+          <input
+            type="date"
+            value={a.balanceAsOf}
+            onChange={(e) => update(a.id, { balanceAsOf: e.target.value })}
+            className="bg-transparent text-sm font-mono focus:outline-none"
           />
         </td>
         <td className="py-2 pr-2 text-right">
@@ -236,6 +255,7 @@ export default function PensionsAndLisas({ accounts, salaries, tax, onChange }: 
             <tr className="text-left text-xs text-inkfaint border-b border-rule">
               <th className="pb-2 pr-3 font-normal">Name</th>
               <th className="pb-2 pr-3 font-normal text-right">Balance</th>
+              <th className="pb-2 pr-3 font-normal">As of</th>
               <th className="pb-2 pr-3 font-normal text-right">Growth/yr</th>
               <th className="pb-2 pr-3 font-normal text-right">Contribution</th>
               <th className="pb-2 pr-3 font-normal text-right">Gov. bonus</th>
@@ -247,7 +267,7 @@ export default function PensionsAndLisas({ accounts, salaries, tax, onChange }: 
           {list.length > 0 && (
             <tfoot>
               <tr>
-                <td colSpan={4} className="pt-2 text-xs text-inkfaint">Total monthly contributions</td>
+                <td colSpan={5} className="pt-2 text-xs text-inkfaint">Total monthly contributions</td>
                 <td colSpan={2} className="pt-2 text-right font-mono text-xs tabular text-teal">
                   {formatCurrency(contribution, currency)}
                 </td>
@@ -299,7 +319,8 @@ export default function PensionsAndLisas({ accounts, salaries, tax, onChange }: 
         regular contributions earn either top-up, not one-off deposits. A pension with nothing
         coming in either way is flagged as dormant — handy for an old workplace pension you've left
         invested but stopped paying into. This model doesn't account for a LISA's 25%
-        early-withdrawal penalty.
+        early-withdrawal penalty. "As of" is when you last checked the balance — the forecast
+        catches up growth and contributions since then before projecting forward.
       </p>
 
       <div className="space-y-8">

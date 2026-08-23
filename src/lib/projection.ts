@@ -14,7 +14,7 @@ function sameMonth(a: Date, b: Date): boolean {
  * the two shifts comparisons by a day (or a whole month, near a month
  * boundary) depending on the browser's timezone offset from UTC.
  */
-function parseLocalDate(iso: string): Date {
+export function parseLocalDate(iso: string): Date {
   const [y, m, d] = iso.split('-').map(Number);
   return new Date(y, m - 1, d);
 }
@@ -34,6 +34,47 @@ function effectiveRate(baseRate: number, changes: RateChange[] | undefined, date
   return rate;
 }
 
+/** Whole calendar months between two day-1 dates, never negative (e.g. an "as of" date in the future). */
+function monthsBetween(from: Date, to: Date): number {
+  return Math.max(0, (to.getFullYear() - from.getFullYear()) * 12 + (to.getMonth() - from.getMonth()));
+}
+
+/**
+ * Fast-forwards a balance from its "as of" date to `today`, applying the same
+ * monthly growth (and, for accounts, contribution) the main projection loop
+ * would have applied over that gap — so a balance that's months old doesn't
+ * silently miss growth/contributions that have already happened. Assumes
+ * they continued exactly as configured, consistent with this being a
+ * fixed-rate model throughout.
+ */
+function catchUpBalance(balance: number, asOf: string, today: Date, rateAt: (date: Date) => number, monthlyContribution = 0): number {
+  const asOfDate = parseLocalDate(asOf);
+  const start = new Date(asOfDate.getFullYear(), asOfDate.getMonth(), 1);
+  const months = monthsBetween(start, today);
+  let result = balance;
+  for (let i = 1; i <= months; i++) {
+    const date = new Date(start.getFullYear(), start.getMonth() + i, 1);
+    const monthlyRate = Math.pow(1 + rateAt(date) / 100, 1 / 12) - 1;
+    result = result * (1 + monthlyRate) + monthlyContribution;
+  }
+  return result;
+}
+
+/** As `catchUpBalance`, but for a loan: interest accrues, then the payment reduces the balance (capped so it can't go negative). */
+function catchUpLoanBalance(balance: number, asOf: string, today: Date, rateAt: (date: Date) => number, monthlyPayment: number): number {
+  const asOfDate = parseLocalDate(asOf);
+  const start = new Date(asOfDate.getFullYear(), asOfDate.getMonth(), 1);
+  const months = monthsBetween(start, today);
+  let result = balance;
+  for (let i = 1; i <= months; i++) {
+    const date = new Date(start.getFullYear(), start.getMonth() + i, 1);
+    const monthlyRate = Math.pow(1 + rateAt(date) / 100, 1 / 12) - 1;
+    result += result * monthlyRate;
+    result -= Math.min(monthlyPayment, result);
+  }
+  return result;
+}
+
 /**
  * Runs a month-by-month simulation from today out to the configured
  * projection end age. Growth is applied first each month, then the
@@ -51,20 +92,15 @@ export function runProjection(data: AppData): ProjectionPoint[] {
     Math.round((settings.projectionEndAge - settings.currentAge) * 12)
   );
 
-  const balances: Record<string, number> = {};
-  accounts.forEach((a) => (balances[a.id] = a.balance));
-
-  const assetBalances: Record<string, number> = {};
-  assets.forEach((a) => (assetBalances[a.id] = a.value));
-
-  const loanBalances: Record<string, number> = {};
-  loans.forEach((l) => (loanBalances[l.id] = l.balance));
+  const startDate = new Date();
+  const today = new Date(startDate.getFullYear(), startDate.getMonth(), 1);
 
   const salaryBreakdowns = salaries.map((s) => calcSalaryBreakdown(s, settings.tax));
 
   // Each account's own monthly contribution, plus any salary sacrifice/employer
   // pension contributions routed to it, and any Lifetime ISA government bonus.
-  // This merged map drives balance growth.
+  // This merged map drives balance growth — computed before the catch-up pass
+  // below so it can assume the same steady contribution held during the gap.
   const contributionsByAccount: Record<string, number> = {};
   accounts.forEach((a) => {
     const ownMonthly = toMonthlyAmount(a.contributionAmount, a.contributionFrequency);
@@ -75,6 +111,38 @@ export function runProjection(data: AppData): ProjectionPoint[] {
     if (s.pensionAccountId && contributionsByAccount[s.pensionAccountId] !== undefined) {
       contributionsByAccount[s.pensionAccountId] += salaryBreakdowns[i].pensionContributionMonthly;
     }
+  });
+
+  // Balances are stored "as of" a date that may be in the past — fast-forward
+  // each to today first (see catchUpBalance/catchUpLoanBalance above) so a
+  // months-old figure isn't silently treated as if it were true right now.
+  const balances: Record<string, number> = {};
+  accounts.forEach((a) => {
+    balances[a.id] = catchUpBalance(
+      a.balance,
+      a.balanceAsOf,
+      today,
+      (date) => effectiveRate(a.annualGrowthRate, a.rateChanges, date),
+      contributionsByAccount[a.id] ?? 0
+    );
+  });
+
+  const assetBalances: Record<string, number> = {};
+  assets.forEach((a) => {
+    assetBalances[a.id] = catchUpBalance(a.value, a.valueAsOf, today, (date) =>
+      effectiveRate(a.annualGrowthRate, a.rateChanges, date)
+    );
+  });
+
+  const loanBalances: Record<string, number> = {};
+  loans.forEach((l) => {
+    loanBalances[l.id] = catchUpLoanBalance(
+      l.balance,
+      l.balanceAsOf,
+      today,
+      (date) => effectiveRate(l.annualInterestRate, l.rateChanges, date),
+      l.monthlyPayment
+    );
   });
 
   const recurringIncome = income.reduce((s, i) => s + toMonthlyAmount(i.amount, i.frequency), 0);
@@ -91,11 +159,10 @@ export function runProjection(data: AppData): ProjectionPoint[] {
     0
   );
 
-  const startDate = new Date();
   const points: ProjectionPoint[] = [];
 
   for (let m = 0; m <= totalMonths; m++) {
-    const date = new Date(startDate.getFullYear(), startDate.getMonth() + m, 1);
+    const date = new Date(today.getFullYear(), today.getMonth() + m, 1);
     const age = settings.currentAge + m / 12;
 
     const eventsThisMonth = oneOffs.filter((e) => sameMonth(new Date(e.date), date));
@@ -190,6 +257,7 @@ export function runProjection(data: AppData): ProjectionPoint[] {
       totalNetWorthReal,
       totalDebt,
       totalAssetValue,
+      inflationFactor,
       monthlyIncome,
       monthlyExpenses,
       monthlyContributions: cashContributions,

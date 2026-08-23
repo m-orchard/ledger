@@ -85,7 +85,7 @@ export default function SettingsPanel({ settings, onChange, people, onPeopleChan
     />
 
     <Card>
-      <h3 className="font-display text-lg text-ink mb-1">Settings</h3>
+      <h3 className="font-display text-lg text-ink mb-1">Forecast Assumptions</h3>
       <p className="text-xs text-inkfaint mb-4">The assumptions the whole forecast runs on.</p>
 
       <div className="grid grid-cols-2 gap-4">

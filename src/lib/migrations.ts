@@ -1,5 +1,6 @@
 import { DEFAULT_TAX_SETTINGS } from './tax';
 import { SHARED_OWNER, PERSON_COLOR_PALETTE, DEFAULT_SHARED_COLOR } from '../types';
+import { todayISO } from './date';
 
 /**
  * Ordered migrations for the persisted data blob. migrations[i] upgrades a
@@ -112,6 +113,19 @@ export const migrations: ((data: any) => any)[] = [
       };
     }),
   }),
+  // v10 -> v11: balances/values are now tracked "as of" a date, so the projection
+  // can fast-forward real growth/payments that happened between when a figure was
+  // last checked and today, instead of silently treating a stale number as current.
+  // Existing data has no history to draw on, so it's backfilled to today.
+  (data) => {
+    const today = todayISO();
+    return {
+      ...data,
+      accounts: (data.accounts ?? []).map((a: any) => ({ balanceAsOf: today, ...a })),
+      loans: (data.loans ?? []).map((l: any) => ({ balanceAsOf: today, ...l })),
+      assets: (data.assets ?? []).map((a: any) => ({ valueAsOf: today, ...a })),
+    };
+  },
 ];
 
 export const CURRENT_SCHEMA_VERSION = migrations.length + 1;

@@ -66,6 +66,8 @@ export interface Account {
   name: string;
   type: AccountType;
   balance: number;
+  /** ISO date `balance` was last confirmed accurate. The projection fast-forwards from here to today before projecting forward, so a stale figure doesn't silently miss growth/contributions that have already happened. */
+  balanceAsOf: string;
   /** Expected annual growth rate, as a percentage, e.g. 5 for 5% */
   annualGrowthRate: number;
   /** Regular contribution into this account */
@@ -118,6 +120,8 @@ export interface Asset {
   id: string;
   name: string;
   value: number;
+  /** ISO date `value` was last confirmed accurate. The projection fast-forwards from here to today before projecting forward, so a stale figure doesn't silently miss growth that's already happened. */
+  valueAsOf: string;
   /** Percentage; negative models depreciation (e.g. a car) */
   annualGrowthRate: number;
   /** A Person.id, or SHARED_OWNER */
@@ -186,6 +190,8 @@ export interface Loan {
   name: string;
   /** Outstanding debt, positive */
   balance: number;
+  /** ISO date `balance` was last confirmed accurate. The projection fast-forwards from here to today before projecting forward, so a stale figure doesn't silently miss interest/payments that have already happened. */
+  balanceAsOf: string;
   /** The debt's starting balance, for a "paid off" progress figure */
   originalAmount: number;
   /** Percentage */
@@ -210,6 +216,8 @@ export interface Settings {
   tax: TaxSettings;
   /** Hex colour shown as the identifying dot for the "Shared" bucket. */
   sharedColor: string;
+  /** Whether the Dashboard shows inflation-adjusted ("today's money") figures by default, rather than nominal ones. Defaults to true (undefined = true) if unset — biases toward underestimating rather than overestimating. */
+  showRealValues?: boolean;
 }
 
 export interface AppData {
@@ -235,6 +243,8 @@ export interface ProjectionPoint {
   totalNetWorthReal: number;
   totalDebt: number;
   totalAssetValue: number;
+  /** Divide any nominal figure at this point by this to get its inflation-adjusted ("today's money") equivalent. */
+  inflationFactor: number;
   monthlyIncome: number;
   monthlyExpenses: number;
   monthlyContributions: number;

@@ -4,6 +4,7 @@ import { newId } from '../lib/storage';
 import { formatCurrency } from '../lib/format';
 import { toMonthlyAmount } from '../lib/frequency';
 import { selectOnFocus } from '../lib/selectOnFocus';
+import { todayISO } from '../lib/date';
 import { useAppSettings } from '../lib/AppSettingsContext';
 import NumberInput from './NumberInput';
 import AddWithOwner from './AddWithOwner';
@@ -46,6 +47,7 @@ export default function Accounts({ accounts, onChange }: Props) {
         name: '',
         type: 'savings',
         balance: 0,
+        balanceAsOf: todayISO(),
         annualGrowthRate: 4,
         contributionAmount: 0,
         contributionFrequency: 'monthly',
@@ -75,6 +77,7 @@ export default function Accounts({ accounts, onChange }: Props) {
               <th className="pb-2 pr-3 font-normal">Name</th>
               <th className="pb-2 pr-3 font-normal">Type</th>
               <th className="pb-2 pr-3 font-normal text-right">Balance</th>
+              <th className="pb-2 pr-3 font-normal">As of</th>
               <th className="pb-2 pr-3 font-normal text-right">Growth/yr</th>
               <th className="pb-2 pr-3 font-normal text-right">Contribution</th>
               <th className="pb-2"></th>
@@ -111,6 +114,14 @@ export default function Accounts({ accounts, onChange }: Props) {
                     value={a.balance}
                     onChange={(balance) => update(a.id, { balance })}
                     className="w-24 bg-transparent text-right font-mono tabular focus:outline-none"
+                  />
+                </td>
+                <td className="py-2 pr-2">
+                  <input
+                    type="date"
+                    value={a.balanceAsOf}
+                    onChange={(e) => update(a.id, { balanceAsOf: e.target.value })}
+                    className="bg-transparent text-sm font-mono focus:outline-none"
                   />
                 </td>
                 <td className="py-2 pr-2 text-right">
@@ -157,7 +168,7 @@ export default function Accounts({ accounts, onChange }: Props) {
           {list.length > 0 && (
             <tfoot>
               <tr>
-                <td colSpan={4} className="pt-2 text-xs text-inkfaint">Total monthly contributions</td>
+                <td colSpan={5} className="pt-2 text-xs text-inkfaint">Total monthly contributions</td>
                 <td className="pt-2 text-right font-mono text-xs tabular text-teal">{formatCurrency(contribution, currency)}</td>
                 <td></td>
               </tr>
@@ -181,8 +192,10 @@ export default function Accounts({ accounts, onChange }: Props) {
       <p className="text-xs text-inkfaint mb-4">
         ISAs, savings, and other accounts — each with its own growth assumption and regular
         contribution. Pensions and Lifetime ISAs are above, since they both get money on top of
-        what you put in. Use the rate's schedule button to add future changes — a fixed-term
-        bond maturing into a lower rate, for example.
+        what you put in. "As of" is when you last checked the balance — the forecast catches up
+        any growth and contributions since then before projecting forward, so a figure you
+        haven't touched in months isn't silently treated as current. Use the rate's schedule
+        button to add future changes — a fixed-term bond maturing into a lower rate, for example.
       </p>
 
       <OwnerGroupedList

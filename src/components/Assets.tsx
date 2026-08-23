@@ -2,6 +2,7 @@ import type { Asset } from '../types';
 import { newId } from '../lib/storage';
 import { formatCurrency } from '../lib/format';
 import { selectOnFocus } from '../lib/selectOnFocus';
+import { todayISO } from '../lib/date';
 import { useAppSettings } from '../lib/AppSettingsContext';
 import NumberInput from './NumberInput';
 import AddWithOwner from './AddWithOwner';
@@ -32,6 +33,7 @@ export default function Assets({ assets, onChange }: Props) {
         id: newId(),
         name: '',
         value: 0,
+        valueAsOf: todayISO(),
         annualGrowthRate: 3,
         ownerId,
       },
@@ -48,6 +50,7 @@ export default function Assets({ assets, onChange }: Props) {
             <tr className="text-left text-xs text-inkfaint border-b border-rule">
               <th className="pb-2 pr-3 font-normal">Name</th>
               <th className="pb-2 pr-3 font-normal text-right">Value</th>
+              <th className="pb-2 pr-3 font-normal">As of</th>
               <th className="pb-2 pr-3 font-normal text-right">Growth/yr</th>
               <th className="pb-2"></th>
             </tr>
@@ -70,6 +73,14 @@ export default function Assets({ assets, onChange }: Props) {
                     value={a.value}
                     onChange={(value) => update(a.id, { value })}
                     className="w-24 bg-transparent text-right font-mono tabular focus:outline-none"
+                  />
+                </td>
+                <td className="py-2 pr-2">
+                  <input
+                    type="date"
+                    value={a.valueAsOf}
+                    onChange={(e) => update(a.id, { valueAsOf: e.target.value })}
+                    className="bg-transparent text-sm font-mono focus:outline-none"
                   />
                 </td>
                 <td className="py-2 pr-2 text-right">
@@ -113,8 +124,10 @@ export default function Assets({ assets, onChange }: Props) {
       <p className="text-xs text-inkfaint mb-4">
         Property, vehicles, or anything else with real value — with its own growth (or
         depreciation, using a negative rate) assumption, which can change over time via the
-        schedule button (e.g. a car depreciating faster in its first few years). Link a loan to
-        one (on the Outgoings tab) to see its equity — the asset's value minus what's still owed.
+        schedule button (e.g. a car depreciating faster in its first few years). "As of" is when
+        you last checked the value — the forecast catches up any growth/depreciation since then
+        before projecting forward. Link a loan to one (on the Outgoings tab) to see its equity —
+        the asset's value minus what's still owed.
       </p>
 
       <OwnerGroupedList

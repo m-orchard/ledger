@@ -2,6 +2,7 @@ import type { Asset, Loan } from '../types';
 import { newId } from '../lib/storage';
 import { formatCurrency } from '../lib/format';
 import { selectOnFocus } from '../lib/selectOnFocus';
+import { todayISO } from '../lib/date';
 import { useAppSettings } from '../lib/AppSettingsContext';
 import NumberInput from './NumberInput';
 import AddWithOwner from './AddWithOwner';
@@ -33,6 +34,7 @@ export default function Loans({ loans, assets, onChange }: Props) {
         id: newId(),
         name: '',
         balance: 0,
+        balanceAsOf: todayISO(),
         originalAmount: 0,
         annualInterestRate: 4.5,
         monthlyPayment: 0,
@@ -59,6 +61,7 @@ export default function Loans({ loans, assets, onChange }: Props) {
               <th className="pb-2 pr-3 font-normal">Name</th>
               <th className="pb-2 pr-3 font-normal text-right">Original</th>
               <th className="pb-2 pr-3 font-normal text-right">Balance</th>
+              <th className="pb-2 pr-3 font-normal">As of</th>
               <th className="pb-2 pr-3 font-normal text-right">Interest/yr</th>
               <th className="pb-2 pr-3 font-normal text-right">Payment/mo</th>
               <th className="pb-2 pr-3 font-normal">Secured against</th>
@@ -98,6 +101,14 @@ export default function Loans({ loans, assets, onChange }: Props) {
                     {percent !== undefined && (
                       <span className="block text-[11px] text-inkfaint">{percent.toFixed(0)}% paid off</span>
                     )}
+                  </td>
+                  <td className="py-2 pr-2">
+                    <input
+                      type="date"
+                      value={l.balanceAsOf}
+                      onChange={(e) => update(l.id, { balanceAsOf: e.target.value })}
+                      className="bg-transparent text-sm font-mono focus:outline-none"
+                    />
                   </td>
                   <td className="py-2 pr-2 text-right">
                     <div className="flex items-center justify-end gap-1">
@@ -170,8 +181,9 @@ export default function Loans({ loans, assets, onChange }: Props) {
         Mortgages and other debt — amortized monthly (interest accrues, then the payment reduces
         the balance). Payments stop automatically once paid off. Overpay via a one-off event below.
         Link a loan to an asset (set up on the Investments &amp; Assets tab) to see the equity you
-        actually have. Use the rate's schedule button for a fixed-rate deal ending or a planned
-        remortgage.
+        actually have. "As of" is when you last checked the balance — the forecast catches up
+        interest/payments since then before projecting forward. Use the rate's schedule button
+        for a fixed-rate deal ending or a planned remortgage.
       </p>
 
       <OwnerGroupedList

@@ -3,6 +3,7 @@ import { newId } from '../lib/storage';
 import { formatCurrency } from '../lib/format';
 import { selectOnFocus } from '../lib/selectOnFocus';
 import { todayISO } from '../lib/date';
+import { useNewRowTracking, useAsOfAutoOpen } from '../lib/asOfTracking';
 import { useAppSettings } from '../lib/AppSettingsContext';
 import NumberInput from './NumberInput';
 import AddWithOwner from './AddWithOwner';
@@ -10,6 +11,7 @@ import Card from './Card';
 import RemoveButton from './RemoveButton';
 import OwnerGroupedList from './OwnerGroupedList';
 import RateSchedule from './RateSchedule';
+import AsOfField from './AsOfField';
 
 interface Props {
   loans: Loan[];
@@ -19,6 +21,8 @@ interface Props {
 
 export default function Loans({ loans, assets, onChange }: Props) {
   const { currency } = useAppSettings();
+  const newRows = useNewRowTracking();
+
   function update(id: string, patch: Partial<Loan>) {
     onChange(loans.map((l) => (l.id === id ? { ...l, ...patch } : l)));
   }
@@ -28,10 +32,11 @@ export default function Loans({ loans, assets, onChange }: Props) {
   }
 
   function add(ownerId: string) {
+    const id = newId();
     onChange([
       ...loans,
       {
-        id: newId(),
+        id,
         name: '',
         balance: 0,
         balanceAsOf: todayISO(),
@@ -41,6 +46,7 @@ export default function Loans({ loans, assets, onChange }: Props) {
         ownerId,
       },
     ]);
+    newRows.markNew(id);
   }
 
   const totalBalance = loans.reduce((s, l) => s + l.balance, 0);
@@ -61,7 +67,6 @@ export default function Loans({ loans, assets, onChange }: Props) {
               <th className="pb-2 pr-3 font-normal">Name</th>
               <th className="pb-2 pr-3 font-normal text-right">Original</th>
               <th className="pb-2 pr-3 font-normal text-right">Balance</th>
-              <th className="pb-2 pr-3 font-normal">As of</th>
               <th className="pb-2 pr-3 font-normal text-right">Interest/yr</th>
               <th className="pb-2 pr-3 font-normal text-right">Payment/mo</th>
               <th className="pb-2 pr-3 font-normal">Secured against</th>
@@ -70,97 +75,20 @@ export default function Loans({ loans, assets, onChange }: Props) {
             </tr>
           </thead>
           <tbody>
-            {list.map((l) => {
-              const percent = paidOffPercent(l);
-              const linkedAsset = assets.find((a) => a.id === l.assetId);
-              return (
-                <tr key={l.id} className="border-b border-rule/60">
-                  <td className="py-2 pr-2">
-                    <input
-                      type="text"
-                      value={l.name}
-                      onChange={(e) => update(l.id, { name: e.target.value })}
-                      onFocus={selectOnFocus}
-                      placeholder="Loan name"
-                      className="w-full bg-transparent focus:outline-none focus-visible:border-b focus-visible:border-brass"
-                    />
-                  </td>
-                  <td className="py-2 pr-2 text-right">
-                    <NumberInput
-                      value={l.originalAmount}
-                      onChange={(originalAmount) => update(l.id, { originalAmount })}
-                      className="w-24 bg-transparent text-right font-mono tabular focus:outline-none"
-                    />
-                  </td>
-                  <td className="py-2 pr-2 text-right">
-                    <NumberInput
-                      value={l.balance}
-                      onChange={(balance) => update(l.id, { balance })}
-                      className="w-24 bg-transparent text-right font-mono tabular focus:outline-none"
-                    />
-                    {percent !== undefined && (
-                      <span className="block text-[11px] text-inkfaint">{percent.toFixed(0)}% paid off</span>
-                    )}
-                  </td>
-                  <td className="py-2 pr-2">
-                    <input
-                      type="date"
-                      value={l.balanceAsOf}
-                      onChange={(e) => update(l.id, { balanceAsOf: e.target.value })}
-                      className="bg-transparent text-sm font-mono focus:outline-none"
-                    />
-                  </td>
-                  <td className="py-2 pr-2 text-right">
-                    <div className="flex items-center justify-end gap-1">
-                      <NumberInput
-                        value={l.annualInterestRate}
-                        onChange={(annualInterestRate) => update(l.id, { annualInterestRate })}
-                        className="w-16 bg-transparent text-right font-mono tabular focus:outline-none"
-                      />
-                      <span className="text-inkfaint text-xs">%</span>
-                      <RateSchedule
-                        label={`${l.name || 'Loan'} — interest rate changes`}
-                        changes={l.rateChanges ?? []}
-                        onChange={(rateChanges) => update(l.id, { rateChanges })}
-                      />
-                    </div>
-                  </td>
-                  <td className="py-2 pr-2 text-right">
-                    <NumberInput
-                      value={l.monthlyPayment}
-                      onChange={(monthlyPayment) => update(l.id, { monthlyPayment })}
-                      className="w-20 bg-transparent text-right font-mono tabular focus:outline-none"
-                    />
-                  </td>
-                  <td className="py-2 pr-2">
-                    <select
-                      value={l.assetId ?? ''}
-                      onChange={(e) => update(l.id, { assetId: e.target.value || undefined })}
-                      className="bg-transparent text-sm focus:outline-none"
-                    >
-                      <option value="">None</option>
-                      {eligibleAssets.map((a) => (
-                        <option key={a.id} value={a.id}>
-                          {a.name || 'Unnamed asset'}
-                        </option>
-                      ))}
-                      {/* Keep a currently-linked asset visible even if its owner no longer matches */}
-                      {linkedAsset && !eligibleAssets.includes(linkedAsset) && (
-                        <option value={linkedAsset.id}>
-                          {(linkedAsset.name || 'Unnamed asset') + ' (mismatched owner)'}
-                        </option>
-                      )}
-                    </select>
-                  </td>
-                  <td className="py-2 pr-2 text-right font-mono tabular text-xs text-inkfaint">
-                    {linkedAsset ? formatCurrency(linkedAsset.value - l.balance, currency) : '—'}
-                  </td>
-                  <td className="py-2 text-right">
-                    <RemoveButton onClick={() => remove(l.id)} label={`Remove ${l.name || 'loan'}`} />
-                  </td>
-                </tr>
-              );
-            })}
+            {list.map((l) => (
+              <LoanRow
+                key={l.id}
+                loan={l}
+                eligibleAssets={eligibleAssets}
+                linkedAsset={assets.find((a) => a.id === l.assetId)}
+                paidOffPercent={paidOffPercent(l)}
+                currency={currency}
+                onUpdate={update}
+                onRemove={remove}
+                isNew={newRows.isNew(l.id)}
+                onSettled={() => newRows.clearNew(l.id)}
+              />
+            ))}
           </tbody>
         </table>
         {list.length === 0 && <p className="text-sm text-inkfaint italic mt-2">Nothing yet.</p>}
@@ -177,15 +105,6 @@ export default function Loans({ loans, assets, onChange }: Props) {
         </div>
         <span className="font-mono text-sm tabular text-brick">{formatCurrency(totalBalance, currency)}</span>
       </div>
-      <p className="text-xs text-inkfaint mb-4">
-        Mortgages and other debt — amortized monthly (interest accrues, then the payment reduces
-        the balance). Payments stop automatically once paid off. Overpay via a one-off event below.
-        Link a loan to an asset (set up on the Investments &amp; Assets tab) to see the equity you
-        actually have. "As of" is when you last checked the balance — the forecast catches up
-        interest/payments since then before projecting forward. Use the rate's schedule button
-        for a fixed-rate deal ending or a planned remortgage.
-      </p>
-
       <OwnerGroupedList
         items={loans}
         getOwnerId={(l) => l.ownerId}
@@ -195,5 +114,120 @@ export default function Loans({ loans, assets, onChange }: Props) {
         {(list, ownerId) => renderTable(list, ownerId)}
       </OwnerGroupedList>
     </Card>
+  );
+}
+
+function LoanRow({
+  loan: l,
+  eligibleAssets,
+  linkedAsset,
+  paidOffPercent,
+  currency,
+  onUpdate,
+  onRemove,
+  isNew,
+  onSettled,
+}: {
+  loan: Loan;
+  eligibleAssets: Asset[];
+  linkedAsset: Asset | undefined;
+  paidOffPercent: number | undefined;
+  currency: Parameters<typeof formatCurrency>[1];
+  onUpdate: (id: string, patch: Partial<Loan>) => void;
+  onRemove: (id: string) => void;
+  isNew: boolean;
+  onSettled: () => void;
+}) {
+  const { signal, handleFocus, handleBlur } = useAsOfAutoOpen(l.balance, isNew, onSettled);
+
+  return (
+    <tr className="border-b border-rule/60">
+      <td className="py-2 pr-2">
+        <input
+          type="text"
+          value={l.name}
+          onChange={(e) => onUpdate(l.id, { name: e.target.value })}
+          onFocus={selectOnFocus}
+          placeholder="Loan name"
+          className="w-full bg-transparent focus:outline-none focus-visible:border-b focus-visible:border-brass"
+        />
+      </td>
+      <td className="py-2 pr-2 text-right">
+        <NumberInput
+          value={l.originalAmount}
+          onChange={(originalAmount) => onUpdate(l.id, { originalAmount })}
+          className="w-24 bg-transparent text-right font-mono tabular focus:outline-none"
+        />
+      </td>
+      <td className="py-2 pr-2 text-right">
+        <div className="flex items-center justify-end gap-1">
+          <NumberInput
+            value={l.balance}
+            onChange={(balance) => onUpdate(l.id, { balance })}
+            onFocus={handleFocus}
+            onBlur={handleBlur}
+            className="w-24 bg-transparent text-right font-mono tabular focus:outline-none"
+          />
+          <AsOfField
+            value={l.balanceAsOf}
+            onChange={(balanceAsOf) => onUpdate(l.id, { balanceAsOf })}
+            label={l.name || 'loan'}
+            autoOpenSignal={signal}
+            align="right"
+          />
+        </div>
+        {paidOffPercent !== undefined && (
+          <span className="block text-[11px] text-inkfaint">{paidOffPercent.toFixed(0)}% paid off</span>
+        )}
+      </td>
+      <td className="py-2 pr-2 text-right">
+        <div className="flex items-center justify-end gap-1">
+          <NumberInput
+            value={l.annualInterestRate}
+            onChange={(annualInterestRate) => onUpdate(l.id, { annualInterestRate })}
+            className="w-16 bg-transparent text-right font-mono tabular focus:outline-none"
+          />
+          <span className="text-inkfaint text-xs">%</span>
+          <RateSchedule
+            label={`${l.name || 'Loan'} — interest rate changes`}
+            changes={l.rateChanges ?? []}
+            onChange={(rateChanges) => onUpdate(l.id, { rateChanges })}
+          />
+        </div>
+      </td>
+      <td className="py-2 pr-2 text-right">
+        <NumberInput
+          value={l.monthlyPayment}
+          onChange={(monthlyPayment) => onUpdate(l.id, { monthlyPayment })}
+          className="w-20 bg-transparent text-right font-mono tabular focus:outline-none"
+        />
+      </td>
+      <td className="py-2 pr-2">
+        <select
+          value={l.assetId ?? ''}
+          onChange={(e) => onUpdate(l.id, { assetId: e.target.value || undefined })}
+          className="bg-transparent text-sm focus:outline-none"
+        >
+          <option value="">None</option>
+          {eligibleAssets.map((a) => (
+            <option key={a.id} value={a.id}>
+              {a.name || 'Unnamed asset'}
+            </option>
+          ))}
+          {/* Keep a currently-linked asset visible even if its owner no longer matches */}
+          {linkedAsset && !eligibleAssets.includes(linkedAsset) && (
+            <option value={linkedAsset.id}>
+              {(linkedAsset.name || 'Unnamed asset') + ' (mismatched owner)'}
+            </option>
+          )}
+        </select>
+      </td>
+      <td className="py-2 pr-2 text-right font-mono tabular text-xs text-inkfaint">
+        {linkedAsset ? formatCurrency(linkedAsset.value - l.balance, currency) : '—'}
+      </td>
+      <td className="py-2 text-right">
+        <RemoveButton onClick={() => onRemove(l.id)} label={`Remove ${l.name || 'loan'}`} />
+      </td>
+    </tr>
   );
 }

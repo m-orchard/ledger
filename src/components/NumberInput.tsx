@@ -10,6 +10,8 @@ interface Props {
   /** Fixed number of decimal places always shown, e.g. 0 for whole-number ages. Defaults to 2 (money/percentages). */
   decimalScale?: number;
   disabled?: boolean;
+  onFocus?: () => void;
+  onBlur?: () => void;
 }
 
 /**
@@ -29,12 +31,18 @@ export default function NumberInput({
   allowNegative = false,
   decimalScale = 2,
   disabled = false,
+  onFocus,
+  onBlur,
 }: Props) {
   return (
     <NumericFormat
       value={value}
       onValueChange={(values) => onChange(values.floatValue ?? 0)}
-      onFocus={(e) => e.target.select()}
+      onFocus={(e) => {
+        e.target.select();
+        onFocus?.();
+      }}
+      onBlur={onBlur}
       thousandSeparator=","
       decimalScale={decimalScale}
       fixedDecimalScale

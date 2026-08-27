@@ -15,8 +15,9 @@ import SettingsPanel from './components/SettingsPanel';
 import NetWorthChart from './components/NetWorthChart';
 import SummaryCards from './components/SummaryCards';
 import PersonSummary from './components/PersonSummary';
+import Guide from './components/Guide';
 
-type Tab = 'dashboard' | 'income' | 'outgoings' | 'accounts' | 'settings';
+type Tab = 'dashboard' | 'income' | 'outgoings' | 'accounts' | 'settings' | 'guide';
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'dashboard', label: 'Dashboard' },
@@ -24,6 +25,7 @@ const TABS: { id: Tab; label: string }[] = [
   { id: 'outgoings', label: 'Outgoings' },
   { id: 'accounts', label: 'Investments & Assets' },
   { id: 'settings', label: 'Settings' },
+  { id: 'guide', label: 'How it works' },
 ];
 
 const TAB_IDS = TABS.map((t) => t.id);
@@ -132,7 +134,7 @@ export default function App() {
                     showReal ? 'border-brass text-ink font-medium' : 'border-rule text-inkfaint hover:text-ink'
                   }`}
                 >
-                  Today's money
+                  Inflation-adjusted
                 </button>
                 <button
                   onClick={() => setData({ ...data, settings: { ...data.settings, showRealValues: false } })}
@@ -251,11 +253,14 @@ export default function App() {
                 salaries={data.salaries}
                 tax={data.settings.tax}
                 onChange={(accounts) => setData({ ...data, accounts })}
+                onSalariesChange={(salaries) => setData({ ...data, salaries })}
               />
               <Accounts accounts={data.accounts} onChange={(accounts) => setData({ ...data, accounts })} />
               <Assets assets={data.assets} onChange={(assets) => setData({ ...data, assets })} />
             </div>
           )}
+
+          {tab === 'guide' && <Guide />}
 
           {tab === 'settings' && (
             <SettingsPanel

@@ -5,6 +5,7 @@ import { formatCurrency } from '../lib/format';
 import { toMonthlyAmount } from '../lib/frequency';
 import { selectOnFocus } from '../lib/selectOnFocus';
 import { todayISO } from '../lib/date';
+import { useNewRowTracking, useAsOfAutoOpen } from '../lib/asOfTracking';
 import { useAppSettings } from '../lib/AppSettingsContext';
 import NumberInput from './NumberInput';
 import AddWithOwner from './AddWithOwner';
@@ -12,6 +13,7 @@ import Card from './Card';
 import RemoveButton from './RemoveButton';
 import OwnerGroupedList from './OwnerGroupedList';
 import RateSchedule from './RateSchedule';
+import AsOfField from './AsOfField';
 
 interface Props {
   accounts: Account[];
@@ -31,6 +33,8 @@ const FREQUENCIES: Frequency[] = ['weekly', 'monthly', 'annual'];
 
 export default function Accounts({ accounts, onChange }: Props) {
   const { currency } = useAppSettings();
+  const newRows = useNewRowTracking();
+
   function update(id: string, patch: Partial<Account>) {
     onChange(accounts.map((a) => (a.id === id ? { ...a, ...patch } : a)));
   }
@@ -40,10 +44,11 @@ export default function Accounts({ accounts, onChange }: Props) {
   }
 
   function add(ownerId: string) {
+    const id = newId();
     onChange([
       ...accounts,
       {
-        id: newId(),
+        id,
         name: '',
         type: 'savings',
         balance: 0,
@@ -54,6 +59,7 @@ export default function Accounts({ accounts, onChange }: Props) {
         ownerId,
       },
     ]);
+    newRows.markNew(id);
   }
 
   const generalAccounts = accounts.filter((a) => a.type !== 'pension' && a.type !== 'lifetime-isa');
@@ -77,7 +83,6 @@ export default function Accounts({ accounts, onChange }: Props) {
               <th className="pb-2 pr-3 font-normal">Name</th>
               <th className="pb-2 pr-3 font-normal">Type</th>
               <th className="pb-2 pr-3 font-normal text-right">Balance</th>
-              <th className="pb-2 pr-3 font-normal">As of</th>
               <th className="pb-2 pr-3 font-normal text-right">Growth/yr</th>
               <th className="pb-2 pr-3 font-normal text-right">Contribution</th>
               <th className="pb-2"></th>
@@ -85,90 +90,20 @@ export default function Accounts({ accounts, onChange }: Props) {
           </thead>
           <tbody>
             {list.map((a) => (
-              <tr key={a.id} className="border-b border-rule/60">
-                <td className="py-2 pr-2">
-                  <input
-                    type="text"
-                    value={a.name}
-                    onChange={(e) => update(a.id, { name: e.target.value })}
-                    onFocus={selectOnFocus}
-                    placeholder="Account name"
-                    className="w-full bg-transparent focus:outline-none focus-visible:border-b focus-visible:border-brass"
-                  />
-                </td>
-                <td className="py-2 pr-2">
-                  <select
-                    value={a.type}
-                    onChange={(e) => update(a.id, { type: e.target.value as AccountType })}
-                    className="bg-transparent text-sm focus:outline-none"
-                  >
-                    {ACCOUNT_TYPES.map((t) => (
-                      <option key={t} value={t}>
-                        {ACCOUNT_TYPE_LABELS[t]}
-                      </option>
-                    ))}
-                  </select>
-                </td>
-                <td className="py-2 pr-2 text-right">
-                  <NumberInput
-                    value={a.balance}
-                    onChange={(balance) => update(a.id, { balance })}
-                    className="w-24 bg-transparent text-right font-mono tabular focus:outline-none"
-                  />
-                </td>
-                <td className="py-2 pr-2">
-                  <input
-                    type="date"
-                    value={a.balanceAsOf}
-                    onChange={(e) => update(a.id, { balanceAsOf: e.target.value })}
-                    className="bg-transparent text-sm font-mono focus:outline-none"
-                  />
-                </td>
-                <td className="py-2 pr-2 text-right">
-                  <div className="flex items-center justify-end gap-1">
-                    <NumberInput
-                      value={a.annualGrowthRate}
-                      onChange={(annualGrowthRate) => update(a.id, { annualGrowthRate })}
-                      className="w-16 bg-transparent text-right font-mono tabular focus:outline-none"
-                    />
-                    <span className="text-inkfaint text-xs">%</span>
-                    <RateSchedule
-                      label={`${a.name || 'Account'} — growth rate changes`}
-                      changes={a.rateChanges ?? []}
-                      onChange={(rateChanges) => update(a.id, { rateChanges })}
-                    />
-                  </div>
-                </td>
-                <td className="py-2 pr-2 text-right">
-                  <div className="flex items-center justify-end gap-1">
-                    <NumberInput
-                      value={a.contributionAmount}
-                      onChange={(contributionAmount) => update(a.id, { contributionAmount })}
-                      className="w-16 bg-transparent text-right font-mono tabular focus:outline-none"
-                    />
-                    <select
-                      value={a.contributionFrequency}
-                      onChange={(e) => update(a.id, { contributionFrequency: e.target.value as Frequency })}
-                      className="bg-transparent text-xs focus:outline-none"
-                    >
-                      {FREQUENCIES.map((f) => (
-                        <option key={f} value={f}>
-                          {f}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                </td>
-                <td className="py-2 text-right">
-                  <RemoveButton onClick={() => remove(a.id)} label={`Remove ${a.name || 'account'}`} />
-                </td>
-              </tr>
+              <AccountRow
+                key={a.id}
+                account={a}
+                onUpdate={update}
+                onRemove={remove}
+                isNew={newRows.isNew(a.id)}
+                onSettled={() => newRows.clearNew(a.id)}
+              />
             ))}
           </tbody>
           {list.length > 0 && (
             <tfoot>
               <tr>
-                <td colSpan={5} className="pt-2 text-xs text-inkfaint">Total monthly contributions</td>
+                <td colSpan={4} className="pt-2 text-xs text-inkfaint">Total monthly contributions</td>
                 <td className="pt-2 text-right font-mono text-xs tabular text-teal">{formatCurrency(contribution, currency)}</td>
                 <td></td>
               </tr>
@@ -189,15 +124,6 @@ export default function Accounts({ accounts, onChange }: Props) {
         </div>
         <span className="font-mono text-sm tabular text-brass">{formatCurrency(totalBalance, currency)}</span>
       </div>
-      <p className="text-xs text-inkfaint mb-4">
-        ISAs, savings, and other accounts — each with its own growth assumption and regular
-        contribution. Pensions and Lifetime ISAs are above, since they both get money on top of
-        what you put in. "As of" is when you last checked the balance — the forecast catches up
-        any growth and contributions since then before projecting forward, so a figure you
-        haven't touched in months isn't silently treated as current. Use the rate's schedule
-        button to add future changes — a fixed-term bond maturing into a lower rate, for example.
-      </p>
-
       <OwnerGroupedList
         items={generalAccounts}
         getOwnerId={(a) => a.ownerId}
@@ -211,5 +137,105 @@ export default function Accounts({ accounts, onChange }: Props) {
         Total monthly contributions across everyone: {formatCurrency(totalContribution, currency)}
       </p>
     </Card>
+  );
+}
+
+function AccountRow({
+  account: a,
+  onUpdate,
+  onRemove,
+  isNew,
+  onSettled,
+}: {
+  account: Account;
+  onUpdate: (id: string, patch: Partial<Account>) => void;
+  onRemove: (id: string) => void;
+  isNew: boolean;
+  onSettled: () => void;
+}) {
+  const { signal, handleFocus, handleBlur } = useAsOfAutoOpen(a.balance, isNew, onSettled);
+
+  return (
+    <tr className="border-b border-rule/60">
+      <td className="py-2 pr-2">
+        <input
+          type="text"
+          value={a.name}
+          onChange={(e) => onUpdate(a.id, { name: e.target.value })}
+          onFocus={selectOnFocus}
+          placeholder="Account name"
+          className="w-full bg-transparent focus:outline-none focus-visible:border-b focus-visible:border-brass"
+        />
+      </td>
+      <td className="py-2 pr-2">
+        <select
+          value={a.type}
+          onChange={(e) => onUpdate(a.id, { type: e.target.value as AccountType })}
+          className="bg-transparent text-sm focus:outline-none"
+        >
+          {ACCOUNT_TYPES.map((t) => (
+            <option key={t} value={t}>
+              {ACCOUNT_TYPE_LABELS[t]}
+            </option>
+          ))}
+        </select>
+      </td>
+      <td className="py-2 pr-2 text-right">
+        <div className="flex items-center justify-end gap-1">
+          <NumberInput
+            value={a.balance}
+            onChange={(balance) => onUpdate(a.id, { balance })}
+            onFocus={handleFocus}
+            onBlur={handleBlur}
+            className="w-24 bg-transparent text-right font-mono tabular focus:outline-none"
+          />
+          <AsOfField
+            value={a.balanceAsOf}
+            onChange={(balanceAsOf) => onUpdate(a.id, { balanceAsOf })}
+            label={a.name || 'account'}
+            autoOpenSignal={signal}
+            align="right"
+          />
+        </div>
+      </td>
+      <td className="py-2 pr-2 text-right">
+        <div className="flex items-center justify-end gap-1">
+          <NumberInput
+            value={a.annualGrowthRate}
+            onChange={(annualGrowthRate) => onUpdate(a.id, { annualGrowthRate })}
+            className="w-16 bg-transparent text-right font-mono tabular focus:outline-none"
+          />
+          <span className="text-inkfaint text-xs">%</span>
+          <RateSchedule
+            label={`${a.name || 'Account'} — growth rate changes`}
+            changes={a.rateChanges ?? []}
+            onChange={(rateChanges) => onUpdate(a.id, { rateChanges })}
+          />
+        </div>
+      </td>
+      <td className="py-2 pr-2 text-right">
+        <div className="flex items-center justify-end gap-1">
+          <NumberInput
+            value={a.contributionAmount}
+            onChange={(contributionAmount) => onUpdate(a.id, { contributionAmount })}
+            className="w-16 bg-transparent text-right font-mono tabular focus:outline-none"
+          />
+          <select
+            value={a.contributionFrequency}
+            onChange={(e) => onUpdate(a.id, { contributionFrequency: e.target.value as Frequency })}
+            className="bg-transparent text-xs focus:outline-none"
+          >
+            {FREQUENCIES.map((f) => (
+              <option key={f} value={f}>
+                {f}
+              </option>
+            ))}
+          </select>
+        </div>
+      </td>
+      <td className="py-2 text-right">
+        <RemoveButton onClick={() => onRemove(a.id)} label={`Remove ${a.name || 'account'}`} />
+      </td>
+    </tr>
   );
 }

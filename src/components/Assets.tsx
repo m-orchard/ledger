@@ -3,6 +3,7 @@ import { newId } from '../lib/storage';
 import { formatCurrency } from '../lib/format';
 import { selectOnFocus } from '../lib/selectOnFocus';
 import { todayISO } from '../lib/date';
+import { useNewRowTracking, useAsOfAutoOpen } from '../lib/asOfTracking';
 import { useAppSettings } from '../lib/AppSettingsContext';
 import NumberInput from './NumberInput';
 import AddWithOwner from './AddWithOwner';
@@ -10,6 +11,7 @@ import Card from './Card';
 import RemoveButton from './RemoveButton';
 import OwnerGroupedList from './OwnerGroupedList';
 import RateSchedule from './RateSchedule';
+import AsOfField from './AsOfField';
 
 interface Props {
   assets: Asset[];
@@ -18,6 +20,8 @@ interface Props {
 
 export default function Assets({ assets, onChange }: Props) {
   const { currency } = useAppSettings();
+  const newRows = useNewRowTracking();
+
   function update(id: string, patch: Partial<Asset>) {
     onChange(assets.map((a) => (a.id === id ? { ...a, ...patch } : a)));
   }
@@ -27,10 +31,11 @@ export default function Assets({ assets, onChange }: Props) {
   }
 
   function add(ownerId: string) {
+    const id = newId();
     onChange([
       ...assets,
       {
-        id: newId(),
+        id,
         name: '',
         value: 0,
         valueAsOf: todayISO(),
@@ -38,6 +43,7 @@ export default function Assets({ assets, onChange }: Props) {
         ownerId,
       },
     ]);
+    newRows.markNew(id);
   }
 
   const totalValue = assets.reduce((s, a) => s + a.value, 0);
@@ -50,60 +56,20 @@ export default function Assets({ assets, onChange }: Props) {
             <tr className="text-left text-xs text-inkfaint border-b border-rule">
               <th className="pb-2 pr-3 font-normal">Name</th>
               <th className="pb-2 pr-3 font-normal text-right">Value</th>
-              <th className="pb-2 pr-3 font-normal">As of</th>
               <th className="pb-2 pr-3 font-normal text-right">Growth/yr</th>
               <th className="pb-2"></th>
             </tr>
           </thead>
           <tbody>
             {list.map((a) => (
-              <tr key={a.id} className="border-b border-rule/60">
-                <td className="py-2 pr-2">
-                  <input
-                    type="text"
-                    value={a.name}
-                    onChange={(e) => update(a.id, { name: e.target.value })}
-                    onFocus={selectOnFocus}
-                    placeholder="Asset name"
-                    className="w-full bg-transparent focus:outline-none focus-visible:border-b focus-visible:border-brass"
-                  />
-                </td>
-                <td className="py-2 pr-2 text-right">
-                  <NumberInput
-                    value={a.value}
-                    onChange={(value) => update(a.id, { value })}
-                    className="w-24 bg-transparent text-right font-mono tabular focus:outline-none"
-                  />
-                </td>
-                <td className="py-2 pr-2">
-                  <input
-                    type="date"
-                    value={a.valueAsOf}
-                    onChange={(e) => update(a.id, { valueAsOf: e.target.value })}
-                    className="bg-transparent text-sm font-mono focus:outline-none"
-                  />
-                </td>
-                <td className="py-2 pr-2 text-right">
-                  <div className="flex items-center justify-end gap-1">
-                    <NumberInput
-                      value={a.annualGrowthRate}
-                      onChange={(annualGrowthRate) => update(a.id, { annualGrowthRate })}
-                      allowNegative
-                      className="w-16 bg-transparent text-right font-mono tabular focus:outline-none"
-                    />
-                    <span className="text-inkfaint text-xs">%</span>
-                    <RateSchedule
-                      label={`${a.name || 'Asset'} — growth rate changes`}
-                      changes={a.rateChanges ?? []}
-                      onChange={(rateChanges) => update(a.id, { rateChanges })}
-                      allowNegative
-                    />
-                  </div>
-                </td>
-                <td className="py-2 text-right">
-                  <RemoveButton onClick={() => remove(a.id)} label={`Remove ${a.name || 'asset'}`} />
-                </td>
-              </tr>
+              <AssetRow
+                key={a.id}
+                asset={a}
+                onUpdate={update}
+                onRemove={remove}
+                isNew={newRows.isNew(a.id)}
+                onSettled={() => newRows.clearNew(a.id)}
+              />
             ))}
           </tbody>
         </table>
@@ -121,15 +87,6 @@ export default function Assets({ assets, onChange }: Props) {
         </div>
         <span className="font-mono text-sm tabular text-brass">{formatCurrency(totalValue, currency)}</span>
       </div>
-      <p className="text-xs text-inkfaint mb-4">
-        Property, vehicles, or anything else with real value — with its own growth (or
-        depreciation, using a negative rate) assumption, which can change over time via the
-        schedule button (e.g. a car depreciating faster in its first few years). "As of" is when
-        you last checked the value — the forecast catches up any growth/depreciation since then
-        before projecting forward. Link a loan to one (on the Outgoings tab) to see its equity —
-        the asset's value minus what's still owed.
-      </p>
-
       <OwnerGroupedList
         items={assets}
         getOwnerId={(a) => a.ownerId}
@@ -139,5 +96,74 @@ export default function Assets({ assets, onChange }: Props) {
         {(list) => renderTable(list)}
       </OwnerGroupedList>
     </Card>
+  );
+}
+
+function AssetRow({
+  asset: a,
+  onUpdate,
+  onRemove,
+  isNew,
+  onSettled,
+}: {
+  asset: Asset;
+  onUpdate: (id: string, patch: Partial<Asset>) => void;
+  onRemove: (id: string) => void;
+  isNew: boolean;
+  onSettled: () => void;
+}) {
+  const { signal, handleFocus, handleBlur } = useAsOfAutoOpen(a.value, isNew, onSettled);
+
+  return (
+    <tr className="border-b border-rule/60">
+      <td className="py-2 pr-2">
+        <input
+          type="text"
+          value={a.name}
+          onChange={(e) => onUpdate(a.id, { name: e.target.value })}
+          onFocus={selectOnFocus}
+          placeholder="Asset name"
+          className="w-full bg-transparent focus:outline-none focus-visible:border-b focus-visible:border-brass"
+        />
+      </td>
+      <td className="py-2 pr-2 text-right">
+        <div className="flex items-center justify-end gap-1">
+          <NumberInput
+            value={a.value}
+            onChange={(value) => onUpdate(a.id, { value })}
+            onFocus={handleFocus}
+            onBlur={handleBlur}
+            className="w-24 bg-transparent text-right font-mono tabular focus:outline-none"
+          />
+          <AsOfField
+            value={a.valueAsOf}
+            onChange={(valueAsOf) => onUpdate(a.id, { valueAsOf })}
+            label={a.name || 'asset'}
+            autoOpenSignal={signal}
+            align="right"
+          />
+        </div>
+      </td>
+      <td className="py-2 pr-2 text-right">
+        <div className="flex items-center justify-end gap-1">
+          <NumberInput
+            value={a.annualGrowthRate}
+            onChange={(annualGrowthRate) => onUpdate(a.id, { annualGrowthRate })}
+            allowNegative
+            className="w-16 bg-transparent text-right font-mono tabular focus:outline-none"
+          />
+          <span className="text-inkfaint text-xs">%</span>
+          <RateSchedule
+            label={`${a.name || 'Asset'} — growth rate changes`}
+            changes={a.rateChanges ?? []}
+            onChange={(rateChanges) => onUpdate(a.id, { rateChanges })}
+            allowNegative
+          />
+        </div>
+      </td>
+      <td className="py-2 text-right">
+        <RemoveButton onClick={() => onRemove(a.id)} label={`Remove ${a.name || 'asset'}`} />
+      </td>
+    </tr>
   );
 }

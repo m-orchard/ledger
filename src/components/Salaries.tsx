@@ -1,8 +1,10 @@
-import { Fragment } from 'react';
+import { useState } from 'react';
 import type { Account, Frequency, Salary, SalaryBonus, SalaryDeduction, Settings } from '../types';
 import { newId } from '../lib/storage';
 import { formatCurrency } from '../lib/format';
 import { calcSalaryBreakdown } from '../lib/tax';
+import { toMonthlyAmount } from '../lib/frequency';
+import { formatRelativeDate } from '../lib/date';
 import { selectOnFocus } from '../lib/selectOnFocus';
 import { useAppSettings } from '../lib/AppSettingsContext';
 import NumberInput from './NumberInput';
@@ -10,6 +12,8 @@ import AddWithOwner from './AddWithOwner';
 import Card from './Card';
 import RemoveButton from './RemoveButton';
 import OwnerGroupedList from './OwnerGroupedList';
+import Modal from './Modal';
+import PensionRateFields from './PensionRateFields';
 
 interface Props {
   salaries: Salary[];
@@ -109,9 +113,8 @@ export default function Salaries({ salaries, accounts, tax, onChange }: Props) {
             <tr className="text-left text-xs text-inkfaint border-b border-rule">
               <th className="pb-2 pr-3 font-normal">Name</th>
               <th className="pb-2 pr-3 font-normal text-right">Gross/yr</th>
-              <th className="pb-2 pr-3 font-normal">Pension account</th>
-              <th className="pb-2 pr-3 font-normal text-right">Sacrifice</th>
-              <th className="pb-2 pr-3 font-normal text-right">Employer</th>
+              <th className="pb-2 pr-3 font-normal">Pension</th>
+              <th className="pb-2 pr-3 font-normal">Extras</th>
               <th className="pb-2 pr-3 font-normal text-right">Tax/mo</th>
               <th className="pb-2 pr-3 font-normal text-right">NI/mo</th>
               <th className="pb-2 pr-3 font-normal text-right">Take-home/mo</th>
@@ -122,8 +125,7 @@ export default function Salaries({ salaries, accounts, tax, onChange }: Props) {
             {list.map((s) => {
               const breakdown = calcSalaryBreakdown(s, tax);
               return (
-                <Fragment key={s.id}>
-                  <tr className="border-b border-rule/60">
+                  <tr key={s.id} className="border-b border-rule/60">
                     <td className="py-2 pr-2">
                       <input
                         type="text"
@@ -142,46 +144,23 @@ export default function Salaries({ salaries, accounts, tax, onChange }: Props) {
                       />
                     </td>
                     <td className="py-2 pr-2">
-                      <select
-                        value={s.pensionAccountId ?? ''}
-                        onChange={(e) => update(s.id, { pensionAccountId: e.target.value || undefined })}
-                        className="bg-transparent text-sm focus:outline-none"
-                      >
-                        <option value="">None</option>
-                        {eligibleAccounts.map((a) => (
-                          <option key={a.id} value={a.id}>
-                            {a.name || 'Unnamed account'}
-                          </option>
-                        ))}
-                        {/* Keep a currently-selected account visible even if it no longer matches
-                            (e.g. its type or owner changed after being linked here). */}
-                        {(() => {
-                          const selected = accounts.find(
-                            (a) => a.id === s.pensionAccountId && !eligibleAccounts.includes(a)
-                          );
-                          return selected ? (
-                            <option key={selected.id} value={selected.id}>
-                              {(selected.name || 'Unnamed account') + ' (mismatched owner/type)'}
-                            </option>
-                          ) : null;
-                        })()}
-                      </select>
-                    </td>
-                    <td className="py-2 pr-2 text-right">
-                      <NumberInput
-                        value={s.sacrificePercent}
-                        onChange={(sacrificePercent) => update(s.id, { sacrificePercent })}
-                        className="w-14 bg-transparent text-right font-mono tabular focus:outline-none"
+                      <PensionControl
+                        salary={s}
+                        accounts={accounts}
+                        eligibleAccounts={eligibleAccounts}
+                        onUpdate={(patch) => update(s.id, patch)}
                       />
-                      <span className="text-inkfaint text-xs">%</span>
                     </td>
-                    <td className="py-2 pr-2 text-right">
-                      <NumberInput
-                        value={s.employerContributionPercent}
-                        onChange={(employerContributionPercent) => update(s.id, { employerContributionPercent })}
-                        className="w-14 bg-transparent text-right font-mono tabular focus:outline-none"
+                    <td className="py-2 pr-2">
+                      <ExtrasControl
+                        salary={s}
+                        onAddDeduction={() => addDeduction(s.id)}
+                        onUpdateDeduction={(deductionId, patch) => updateDeduction(s.id, deductionId, patch)}
+                        onRemoveDeduction={(deductionId) => removeDeduction(s.id, deductionId)}
+                        onAddBonus={() => addBonus(s.id)}
+                        onUpdateBonus={(bonusId, patch) => updateBonus(s.id, bonusId, patch)}
+                        onRemoveBonus={(bonusId) => removeBonus(s.id, bonusId)}
                       />
-                      <span className="text-inkfaint text-xs">%</span>
                     </td>
                     <td className="py-2 pr-2 text-right font-mono tabular text-xs text-inkfaint">
                       {formatCurrency(breakdown.incomeTaxMonthly, currency)}
@@ -196,96 +175,6 @@ export default function Salaries({ salaries, accounts, tax, onChange }: Props) {
                       <RemoveButton onClick={() => remove(s.id)} label={`Remove ${s.name || 'salary'}`} />
                     </td>
                   </tr>
-                  <tr className="border-b border-rule/60">
-                    <td colSpan={9} className="pb-3 pt-0 pl-2">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="text-[11px] text-inkfaint">Other deductions:</span>
-                        {s.otherDeductions.map((d) => (
-                          <div key={d.id} className="flex items-center gap-1 bg-black/[0.03] rounded-sm px-2 py-1">
-                            <input
-                              type="text"
-                              value={d.name}
-                              onChange={(e) => updateDeduction(s.id, d.id, { name: e.target.value })}
-                              onFocus={selectOnFocus}
-                              placeholder="e.g. Health insurance"
-                              className="w-28 bg-transparent text-xs focus:outline-none border-b border-rule"
-                            />
-                            <NumberInput
-                              value={d.amount}
-                              onChange={(amount) => updateDeduction(s.id, d.id, { amount })}
-                              className="w-14 bg-transparent text-right text-xs font-mono tabular focus:outline-none border-b border-rule"
-                            />
-                            <select
-                              value={d.frequency}
-                              onChange={(e) => updateDeduction(s.id, d.id, { frequency: e.target.value as Frequency })}
-                              className="bg-transparent text-[11px] focus:outline-none"
-                            >
-                              {FREQUENCIES.map((f) => (
-                                <option key={f} value={f}>
-                                  {f}
-                                </option>
-                              ))}
-                            </select>
-                            <RemoveButton
-                              onClick={() => removeDeduction(s.id, d.id)}
-                              label={`Remove ${d.name || 'deduction'}`}
-                              size="xs"
-                            />
-                          </div>
-                        ))}
-                        <button
-                          onClick={() => addDeduction(s.id)}
-                          aria-label="Add deduction"
-                          className="text-[11px] font-mono text-teal hover:text-ink border border-teal/40 hover:border-teal rounded-sm px-2 py-0.5"
-                        >
-                          +
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                  <tr className="border-b border-rule/60">
-                    <td colSpan={9} className="pb-3 pt-0 pl-2">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="text-[11px] text-inkfaint">Bonuses:</span>
-                        {s.bonuses.map((b) => (
-                          <div key={b.id} className="flex items-center gap-1 bg-black/[0.03] rounded-sm px-2 py-1">
-                            <input
-                              type="date"
-                              value={b.date}
-                              onChange={(e) => updateBonus(s.id, b.id, { date: e.target.value })}
-                              className="bg-transparent text-xs font-mono focus:outline-none border-b border-rule"
-                            />
-                            <input
-                              type="text"
-                              value={b.name}
-                              onChange={(e) => updateBonus(s.id, b.id, { name: e.target.value })}
-                              onFocus={selectOnFocus}
-                              placeholder="e.g. Annual bonus"
-                              className="w-24 bg-transparent text-xs focus:outline-none border-b border-rule"
-                            />
-                            <NumberInput
-                              value={b.amount}
-                              onChange={(amount) => updateBonus(s.id, b.id, { amount })}
-                              className="w-16 bg-transparent text-right text-xs font-mono tabular focus:outline-none border-b border-rule"
-                            />
-                            <RemoveButton
-                              onClick={() => removeBonus(s.id, b.id)}
-                              label={`Remove ${b.name || 'bonus'}`}
-                              size="xs"
-                            />
-                          </div>
-                        ))}
-                        <button
-                          onClick={() => addBonus(s.id)}
-                          aria-label="Add bonus"
-                          className="text-[11px] font-mono text-teal hover:text-ink border border-teal/40 hover:border-teal rounded-sm px-2 py-0.5"
-                        >
-                          +
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                </Fragment>
               );
             })}
           </tbody>
@@ -306,16 +195,6 @@ export default function Salaries({ salaries, accounts, tax, onChange }: Props) {
           {formatCurrency(totalTakeHome, currency)}/mo take-home
         </span>
       </div>
-      <p className="text-xs text-inkfaint mb-4">
-        Gross pay, with Income Tax, National Insurance, and pension salary sacrifice worked out
-        automatically. Edit the bands in Settings if these change. "Other sacrifice deductions"
-        covers flat-amount salary sacrifice with no savings destination — health insurance, a cycle
-        to work scheme, etc — treated as reducing taxable and NI-able pay the same way pension
-        sacrifice does. Some benefits lost this tax advantage under 2017 rules, so double-check
-        against your payslip. "Bonuses" are one-off gross payments, taxed at your marginal rate for
-        the month they land (so a large one can cost more per pound if it crosses into a higher
-        band).
-      </p>
 
       <OwnerGroupedList
         items={salaries}
@@ -328,5 +207,207 @@ export default function Salaries({ salaries, accounts, tax, onChange }: Props) {
         {(list, ownerId) => renderTable(list, ownerId)}
       </OwnerGroupedList>
     </Card>
+  );
+}
+
+/** Small trigger + Modal for a salary's pension account/sacrifice/employer contribution, same pattern as RateSchedule. */
+function PensionControl({
+  salary,
+  accounts,
+  eligibleAccounts,
+  onUpdate,
+}: {
+  salary: Salary;
+  accounts: Account[];
+  eligibleAccounts: Account[];
+  onUpdate: (patch: Partial<Salary>) => void;
+}) {
+  const { currency } = useAppSettings();
+  const [open, setOpen] = useState(false);
+  const selectedAccount = accounts.find((a) => a.id === salary.pensionAccountId);
+  const sacrificeMonthly = (salary.grossAnnual * (salary.sacrificePercent / 100)) / 12;
+  const employerMonthly = (salary.grossAnnual * (salary.employerContributionPercent / 100)) / 12;
+  const totalMonthly = sacrificeMonthly + employerMonthly;
+
+  const label = selectedAccount ? selectedAccount.name || 'Unnamed account' : '+ pension';
+  const title = selectedAccount
+    ? `${selectedAccount.name || 'Unnamed account'} — ${formatCurrency(sacrificeMonthly, currency)}/mo you + ${formatCurrency(employerMonthly, currency)}/mo employer = ${formatCurrency(totalMonthly, currency)}/mo`
+    : 'Set up a pension contribution';
+
+  return (
+    <>
+      <button
+        onClick={() => setOpen(true)}
+        title={title}
+        className="max-w-[8rem] truncate text-left text-[11px] font-mono text-inkfaint hover:text-teal underline decoration-dotted underline-offset-2"
+      >
+        {label}
+      </button>
+
+      {open && (
+        <Modal title={`${salary.name || 'Salary'} — pension contribution`} onClose={() => setOpen(false)}>
+          <label className="block mb-3">
+            <span className="text-xs text-inkfaint block mb-1">Pension account</span>
+            <select
+              value={salary.pensionAccountId ?? ''}
+              onChange={(e) => onUpdate({ pensionAccountId: e.target.value || undefined })}
+              className="w-full bg-transparent border-b border-rule py-1 text-sm focus:outline-none focus-visible:border-brass"
+            >
+              <option value="">None</option>
+              {eligibleAccounts.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.name || 'Unnamed account'}
+                </option>
+              ))}
+              {/* Keep a currently-selected account visible even if it no longer matches
+                  (e.g. its type or owner changed after being linked here). */}
+              {selectedAccount && !eligibleAccounts.includes(selectedAccount) && (
+                <option value={selectedAccount.id}>
+                  {(selectedAccount.name || 'Unnamed account') + ' (mismatched owner/type)'}
+                </option>
+              )}
+            </select>
+          </label>
+
+          <PensionRateFields salary={salary} onUpdate={onUpdate} currency={currency} />
+
+          <div className="flex items-center gap-2 mt-4 pt-3 border-t border-rule/60">
+            <span className="text-xs text-inkfaint">Total</span>
+            <span className="text-xs font-mono tabular text-ink ml-auto">
+              {formatCurrency(totalMonthly, currency)}/mo
+            </span>
+          </div>
+        </Modal>
+      )}
+    </>
+  );
+}
+
+/** Small trigger + Modal combining a salary's "other deductions" and bonuses, same pattern as RateSchedule. */
+function ExtrasControl({
+  salary,
+  onAddDeduction,
+  onUpdateDeduction,
+  onRemoveDeduction,
+  onAddBonus,
+  onUpdateBonus,
+  onRemoveBonus,
+}: {
+  salary: Salary;
+  onAddDeduction: () => void;
+  onUpdateDeduction: (deductionId: string, patch: Partial<SalaryDeduction>) => void;
+  onRemoveDeduction: (deductionId: string) => void;
+  onAddBonus: () => void;
+  onUpdateBonus: (bonusId: string, patch: Partial<SalaryBonus>) => void;
+  onRemoveBonus: (bonusId: string) => void;
+}) {
+  const { currency } = useAppSettings();
+  const [open, setOpen] = useState(false);
+  const deductionCount = salary.otherDeductions.length;
+  const bonusCount = salary.bonuses.length;
+  const count = deductionCount + bonusCount;
+  const sortedBonuses = [...salary.bonuses].sort((a, b) => a.date.localeCompare(b.date));
+
+  const deductionSummary = salary.otherDeductions
+    .map((d) => `${d.name || 'Unnamed'}: ${formatCurrency(toMonthlyAmount(d.amount, d.frequency), currency)}/mo`)
+    .join('\n');
+  const bonusSummary = sortedBonuses
+    .map((b) => `${b.name || 'Unnamed'}: ${formatCurrency(b.amount, currency)} (${formatRelativeDate(b.date)})`)
+    .join('\n');
+  const title =
+    count === 0
+      ? 'Add a deduction or bonus'
+      : [deductionSummary, bonusSummary].filter(Boolean).join('\n\n');
+
+  return (
+    <>
+      <button
+        onClick={() => setOpen(true)}
+        aria-label={count === 0 ? 'Add a deduction or bonus' : `Edit deductions & bonuses (${count})`}
+        title={title}
+        className="text-[11px] font-mono text-inkfaint hover:text-teal underline decoration-dotted underline-offset-2"
+      >
+        {count === 0 ? '+' : count}
+      </button>
+
+      {open && (
+        <Modal title={`${salary.name || 'Salary'} — deductions & bonuses`} onClose={() => setOpen(false)}>
+          <h4 className="font-display text-sm text-ink mb-2">Other deductions</h4>
+          <div className="space-y-2">
+            {salary.otherDeductions.map((d) => (
+              <div key={d.id} className="flex items-center gap-2">
+                <input
+                  type="text"
+                  value={d.name}
+                  onChange={(e) => onUpdateDeduction(d.id, { name: e.target.value })}
+                  onFocus={selectOnFocus}
+                  placeholder="e.g. Health insurance"
+                  className="flex-1 min-w-0 bg-transparent border-b border-rule py-1 text-sm focus:outline-none focus-visible:border-brass"
+                />
+                <NumberInput
+                  value={d.amount}
+                  onChange={(amount) => onUpdateDeduction(d.id, { amount })}
+                  className="w-20 bg-transparent border-b border-rule py-1 text-sm font-mono text-right tabular focus:outline-none focus-visible:border-brass"
+                />
+                <select
+                  value={d.frequency}
+                  onChange={(e) => onUpdateDeduction(d.id, { frequency: e.target.value as Frequency })}
+                  className="bg-transparent border-b border-rule py-1 text-xs focus:outline-none"
+                >
+                  {FREQUENCIES.map((f) => (
+                    <option key={f} value={f}>
+                      {f}
+                    </option>
+                  ))}
+                </select>
+                <RemoveButton onClick={() => onRemoveDeduction(d.id)} label={`Remove ${d.name || 'deduction'}`} />
+              </div>
+            ))}
+            {deductionCount === 0 && <p className="text-xs text-inkfaint italic">No other deductions yet.</p>}
+          </div>
+          <button
+            onClick={onAddDeduction}
+            className="mt-3 text-xs font-mono text-teal hover:text-ink border border-teal/40 hover:border-teal rounded-sm px-2 py-1"
+          >
+            + add deduction
+          </button>
+
+          <h4 className="font-display text-sm text-ink mb-2 mt-6 pt-4 border-t border-rule/60">Bonuses</h4>
+          <div className="space-y-2">
+            {sortedBonuses.map((b) => (
+              <div key={b.id} className="flex items-center gap-2">
+                <input
+                  type="date"
+                  value={b.date}
+                  onChange={(e) => onUpdateBonus(b.id, { date: e.target.value })}
+                  className="bg-transparent border-b border-rule py-1 text-sm font-mono focus:outline-none focus-visible:border-brass"
+                />
+                <input
+                  type="text"
+                  value={b.name}
+                  onChange={(e) => onUpdateBonus(b.id, { name: e.target.value })}
+                  onFocus={selectOnFocus}
+                  placeholder="e.g. Annual bonus"
+                  className="flex-1 min-w-0 bg-transparent border-b border-rule py-1 text-sm focus:outline-none focus-visible:border-brass"
+                />
+                <NumberInput
+                  value={b.amount}
+                  onChange={(amount) => onUpdateBonus(b.id, { amount })}
+                  className="w-20 bg-transparent border-b border-rule py-1 text-sm font-mono text-right tabular focus:outline-none focus-visible:border-brass"
+                />
+                <RemoveButton onClick={() => onRemoveBonus(b.id)} label={`Remove ${b.name || 'bonus'}`} />
+              </div>
+            ))}
+            {bonusCount === 0 && <p className="text-xs text-inkfaint italic">No bonuses yet.</p>}
+          </div>
+          <button
+            onClick={onAddBonus}
+            className="mt-3 text-xs font-mono text-teal hover:text-ink border border-teal/40 hover:border-teal rounded-sm px-2 py-1"
+          >
+            + add bonus
+          </button>
+        </Modal>
+      )}
+    </>
   );
 }

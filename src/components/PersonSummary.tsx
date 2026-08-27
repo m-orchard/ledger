@@ -50,10 +50,7 @@ export default function PersonSummary({ data }: Props) {
   return (
     <Card>
       <h3 className="font-display text-lg text-ink mb-1">By person</h3>
-      <p className="text-xs text-inkfaint mb-4">
-        Current net worth and monthly cash flow, split by who owns each item. Shared items (like a
-        joint mortgage) aren't divided between people.
-      </p>
+      <p className="text-xs text-inkfaint mb-4">Current net worth and monthly cash flow, split by who owns each item.</p>
 
       <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
         {buckets.map((b) => (

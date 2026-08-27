@@ -44,6 +44,71 @@ export default function SettingsPanel({ settings, onChange, people, onPeopleChan
 
   return (
     <div className="space-y-6">
+    <People
+      people={people}
+      sharedColor={settings.sharedColor}
+      onChange={onPeopleChange}
+      onSharedColorChange={(sharedColor) => update({ sharedColor })}
+    />
+
+    <Card>
+      <h3 className="font-display text-lg text-ink mb-4">Forecast Assumptions</h3>
+
+      <div className="grid grid-cols-3 gap-4">
+        <Field label="Current age">
+          <NumberInput
+            value={settings.currentAge}
+            onChange={(currentAge) => update({ currentAge })}
+            decimalScale={0}
+            className={inputClass}
+          />
+        </Field>
+        <Field label="Target retirement age">
+          <NumberInput
+            value={settings.retirementAge}
+            onChange={(retirementAge) => update({ retirementAge })}
+            decimalScale={0}
+            className={inputClass}
+          />
+        </Field>
+        <Field label="Project forward to age">
+          <NumberInput
+            value={settings.projectionEndAge}
+            onChange={(projectionEndAge) => update({ projectionEndAge })}
+            decimalScale={0}
+            className={inputClass}
+          />
+        </Field>
+      </div>
+
+      <div className="grid grid-cols-3 gap-4 mt-4">
+        <Field label="Currency">
+          <select
+            value={settings.currency}
+            onChange={(e) => update({ currency: e.target.value as Settings['currency'] })}
+            className={inputClass}
+          >
+            <option value="GBP">£ GBP</option>
+            <option value="USD">$ USD</option>
+            <option value="EUR">€ EUR</option>
+          </select>
+        </Field>
+        <Field label="Assumed inflation" hint="Used to show today's-money values alongside future values">
+          <div className="flex items-center gap-1">
+            <NumberInput
+              value={settings.inflationRate}
+              onChange={(inflationRate) => update({ inflationRate })}
+              className={inputClass}
+            />
+            <span className="text-xs text-inkfaint">%</span>
+          </div>
+        </Field>
+        <div />
+      </div>
+    </Card>
+
+    <TaxSettingsPanel tax={settings.tax} onChange={(tax) => update({ tax })} />
+
     <Card>
       <h3 className="font-display text-lg text-ink mb-1">Data</h3>
       <p className="text-xs text-inkfaint mb-4">
@@ -76,74 +141,6 @@ export default function SettingsPanel({ settings, onChange, people, onPeopleChan
         />
       </div>
     </Card>
-
-    <People
-      people={people}
-      sharedColor={settings.sharedColor}
-      onChange={onPeopleChange}
-      onSharedColorChange={(sharedColor) => update({ sharedColor })}
-    />
-
-    <Card>
-      <h3 className="font-display text-lg text-ink mb-1">Forecast Assumptions</h3>
-      <p className="text-xs text-inkfaint mb-4">The assumptions the whole forecast runs on.</p>
-
-      <div className="grid grid-cols-2 gap-4">
-        <Field label="Current age">
-          <NumberInput
-            value={settings.currentAge}
-            onChange={(currentAge) => update({ currentAge })}
-            decimalScale={0}
-            className={inputClass}
-          />
-        </Field>
-        <Field label="Target retirement age">
-          <NumberInput
-            value={settings.retirementAge}
-            onChange={(retirementAge) => update({ retirementAge })}
-            decimalScale={0}
-            className={inputClass}
-          />
-        </Field>
-        <Field label="Project forward to age">
-          <NumberInput
-            value={settings.projectionEndAge}
-            onChange={(projectionEndAge) => update({ projectionEndAge })}
-            decimalScale={0}
-            className={inputClass}
-          />
-        </Field>
-        <Field label="Assumed inflation" hint="Used to show today's-money values alongside future values">
-          <div className="flex items-center gap-1">
-            <NumberInput
-              value={settings.inflationRate}
-              onChange={(inflationRate) => update({ inflationRate })}
-              className={inputClass}
-            />
-            <span className="text-xs text-inkfaint">%</span>
-          </div>
-        </Field>
-        <Field label="Currency">
-          <select
-            value={settings.currency}
-            onChange={(e) => update({ currency: e.target.value as Settings['currency'] })}
-            className={inputClass}
-          >
-            <option value="GBP">£ GBP</option>
-            <option value="USD">$ USD</option>
-            <option value="EUR">€ EUR</option>
-          </select>
-        </Field>
-      </div>
-
-      <p className="text-[11px] text-inkfaint mt-4 leading-relaxed">
-        This is a fixed-rate model: it assumes your growth and inflation figures hold every year.
-        Real markets don't move in a straight line — treat the projection as a planning baseline,
-        not a guarantee.
-      </p>
-    </Card>
-
-    <TaxSettingsPanel tax={settings.tax} onChange={(tax) => update({ tax })} />
     </div>
   );
 }

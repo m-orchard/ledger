@@ -369,9 +369,7 @@ export default function NetWorthChart({
     <Card>
       <div className="flex items-baseline justify-between mb-4 gap-3 flex-wrap">
         <h3 className="font-display text-lg text-ink">Net worth over time</h3>
-        <p className="text-[11px] text-inkfaint">
-          {showReal ? "Today's money" : 'Nominal'} — click a legend item to hide it, shift+click to isolate it
-        </p>
+        <p className="text-[11px] text-inkfaint">{showReal ? 'Inflation-adjusted' : 'Nominal'}</p>
       </div>
       <div className="h-96">
         <ResponsiveContainer width="100%" height="100%">

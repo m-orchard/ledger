@@ -8,7 +8,7 @@ interface Props {
   atRetirement: ProjectionPoint | undefined;
   retirementAge: number;
   monthlyCashSurplus: number;
-  /** Whether the "at retirement" figure leads with inflation-adjusted ("today's money") or nominal values. */
+  /** Whether the "at retirement" figure leads with inflation-adjusted or nominal values. */
   showReal: boolean;
 }
 
@@ -58,7 +58,7 @@ export default function SummaryCards({
         value={atRetirement ? formatCurrency(retirementValue as number, currency) : '—'}
         sub={
           atRetirement
-            ? `${formatCurrency(retirementOther as number, currency)} ${showReal ? 'in future pounds' : "in today's money"}`
+            ? `${formatCurrency(retirementOther as number, currency)} ${showReal ? 'in future pounds' : 'inflation-adjusted'}`
             : undefined
         }
         tone="brass"

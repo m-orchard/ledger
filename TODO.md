@@ -160,6 +160,47 @@
       obvious first-party HMRC API for this; may mean scraping a gov.uk page
       or finding a maintained third-party source, so check reliability/terms
       of use before building on top of one.
+- [ ] **Implicit "unallocated cash" balance — money shouldn't disappear from
+      net worth**: right now `monthlyCashSurplus` (`projection.ts`) —
+      income minus expenses minus loan payments minus each account's own
+      `contributionAmount` — is computed fresh every month and then
+      discarded. Anything you earn but haven't explicitly routed into a
+      specific account's contribution currently just vanishes from net
+      worth, which is misleading (net worth should never lose track of real
+      money). Decided direction: accumulate that same surplus figure into
+      an implicit "Unallocated cash" balance instead of discarding it,
+      include it in `totalNetWorth`, and surface it as its own band in the
+      stacked `NetWorthChart` — no new calculation needed, the number
+      already exists, this is about keeping it instead of throwing it away.
+      Since routed contributions are already subtracted out of the surplus
+      formula, adding a real contribution elsewhere naturally shrinks this
+      pot with no double-counting to worry about.
+
+      **Open question — deficits**: a negative monthly surplus has to come
+      from *somewhere* real (an existing account being drawn down, or debt
+      building up) — letting the implicit balance just go negative would
+      read like a free, consequence-free overdraft, which is the opposite
+      of the honesty this is meant to add. Candidate approaches, roughly in
+      order of how much they'd take to build: (a) let it go negative but
+      label it plainly as a shortfall, not "cash"; (b) cap it at zero and
+      surface a loud warning instead ("you're on track to run out of money
+      by age X"); (c) let the user point deficits at a specific real
+      account/loan to draw down. Leaning toward (b) as the first cut,
+      punting (c) as a later refinement.
+
+      **Open question — per person**: `income`/`expenses` already carry an
+      `ownerId`, so this could be either one shared pot or a per-person
+      pot — the latter would also close the exact same "money disappears"
+      gap that currently exists in the "By person" dashboard cards (their
+      net worth and cash-flow figures aren't reconciled with each other
+      either). Not decided.
+
+      **Related, smaller idea also raised in the same conversation**:
+      independent of whether the above gets built, a simpler standalone
+      warning — "you have a £X/mo surplus that isn't going into any
+      account" — would at least surface the gap without fully solving it.
+      Worth keeping as a fallback/interim option if the fuller version
+      above turns out to be too much to take on at once.
 
 ## Layout
 
@@ -172,16 +213,55 @@
       creation — resolves the earlier "positive one-off under Outgoings"
       mismatch, and each card restricts what can be targeted (only Outgoings
       offers Loans/Assets) and whether the amount can go negative.
-- [ ] **Reorder Settings cards**: current order is Data, Household, Forecast
-      Assumptions, Income Tax & National Insurance (`SettingsPanel.tsx`) — no
-      particular reasoning behind it, revisit for a more sensible order.
-- [ ] **Rethink pensions/deductions/bonuses in the Salaries table**: the
-      nested "Other deductions" and "Bonuses" rows in `Salaries.tsx` (a
-      `<Fragment>` per salary with a main row + two sub-rows of inline chips)
-      hasn't been reconsidered since it was first built — worth a fresh look
-      at whether that's still the right shape as the table has grown.
+- [x] **Reorder Settings cards**: reordered to Household, Forecast
+      Assumptions, Income Tax & National Insurance, Data (`SettingsPanel.tsx`)
+      — people first since everything else references them, then the core
+      forecast dials, then the more detailed tax refinement of the same
+      forecast, with the administrative Export/Import card last since it
+      isn't really a forecast setting.
+- [x] **Rethink pensions/deductions/bonuses in the Salaries table**: the
+      always-rendered sub-rows are gone. Pension account/sacrifice/employer %
+      collapsed into a single "Pension" trigger column (`PensionControl`,
+      same `+`/label-then-Modal pattern as `RateSchedule`), showing the
+      linked account name and, inside the modal, the computed £/mo effect
+      of each % (previously invisible without switching tabs) — built
+      `PensionRateFields` as a small shared component so the same editable
+      fields work from both directions. "Other deductions" and "Bonuses"
+      merged into one "Extras" trigger column (`ExtrasControl`) opening a
+      single modal with both lists stacked, rather than two separate
+      columns each holding just a small button. Also, from the other
+      direction: a pension account's "Contribution/mo" figure on the
+      Pensions & LISA table is now itself a trigger (when at least one
+      salary is linked to it) opening a popup listing every linked salary
+      (handles the real, if rare, case of one pension fed by more than one
+      salary) with the same editable fields — closes the loop without
+      moving data ownership (the sacrifice % still lives on the Salary,
+      since it affects that salary's own tax/NI). Required threading a new
+      `onSalariesChange` prop into `PensionsAndLisas`, which previously
+      only had read access to `salaries`. Along the way, fixed a `min-w-0`
+      flexbox overflow bug on modal name fields, and caught (twice) new
+      explanatory paragraphs sneaking back into the Extras modal that
+      duplicated content already moved to the Guide page during the
+      earlier text-review pass — worth double-checking newly-built popups
+      against that same standard going forward, not just the original pass.
 
 ## Polish / UX
+
+- [ ] **One-off event amount sign is inconsistent across targets**: the same
+      signed `amount` field (`OneOffEvents.tsx`) means different things
+      depending on what's targeted — for an account or asset, sign is
+      meaningful (`balances[id] += e.amount`, `projection.ts`), but for a
+      loan it's silently discarded (`loanBalances[id] -= Math.abs(e.amount)`)
+      since a loan-targeted event only ever means "extra repayment," never
+      "extra borrowing." The field doesn't communicate this — it's still
+      styled as signed (brick/teal, `allowNegative`) and lets you type
+      either sign for a loan row, with no visual cue that sign is being
+      ignored there. Fix: when a row targets a loan, treat/display the
+      amount as an unsigned "extra repayment" (no negative entry, no
+      brick/teal sign styling) rather than a signed value that's quietly
+      normalised underneath. While in there, re-check one-off event
+      handling for accounts/assets too, in case there's a similar
+      sign/target mismatch elsewhere that hasn't been noticed yet.
 
 - [x] **Consistent number formatting**: `formatCurrency` now always shows
       2dp (was 0dp). `NumberInput` defaults to a fixed 2 decimal places too
@@ -190,20 +270,31 @@
 - [x] **Select-all-on-focus**: every `NumberInput` and every plain text
       `<input>` across the app now selects its full value on focus (shared
       `selectOnFocus` helper / baked into `NumberInput` directly).
-- [ ] **Leaner "as of" columns**: the "As of" date column added to
-      Accounts/Assets/Loans/Pensions/LISA tables (native `<input
-      type="date">`, always visible, full column width) is heavier than it
-      needs to be for a field most rows will rarely touch after first
-      entry — same category of problem as the rate-schedule trigger before
-      it was shrunk down to "+"/count. Worth a pass once there's a clearer
-      idea of what "leaner" should look like here (a compact
-      relative-date display like "confirmed" until clicked/hovered? Fold
-      it into a schedule-style popup instead of a standing column? Smaller
-      date-input styling?) — no direction decided yet, just flagged as
-      worth revisiting.
-- [ ] **Colour picker visual artifacts**: the native `<input type="color">`
-      swatches in `People.tsx` (per-person + Shared) have some visual
-      rough edges worth tidying up — not yet diagnosed exactly what.
+- [x] **Leaner "as of" columns**: the standing "As of" column is gone from
+      Accounts/Assets/Loans/Pensions/LISA tables — replaced with a small
+      calendar icon next to the Balance/Value field itself (`AsOfField`),
+      whose hover title shows a compact relative label ("today", "3d
+      ago", "5mo ago" — `formatRelativeDate` in `date.ts`) and which opens
+      a small anchored `Popover` (new primitive, lighter than `Modal`: no
+      backdrop, closes on outside click/Escape) with the date field and a
+      "Today" shortcut, only when clicked. Deliberately does *not*
+      auto-stamp the date whenever the balance changes (decided against —
+      "could create confusion," since a balance edit isn't necessarily a
+      fresh confirmation, e.g. correcting a typo). Instead, editing an
+      existing row's balance to a genuinely different value (checked on
+      blur, via `useAsOfAutoOpen`) auto-opens the popover as a nudge,
+      leaving the actual date untouched unless the user confirms via the
+      field or the "Today" button — dismissing it does nothing. Suppressed
+      once for a row just created this session (`useNewRowTracking`),
+      since a new row's "as of" already defaults to today and there's
+      nothing to confirm yet.
+- [x] **Colour picker visual artifacts**: root cause was the native
+      `<input type="color">` swatch carrying its own inset padding/border
+      (`::-webkit-color-swatch-wrapper`/`::-webkit-color-swatch`), which
+      clipped unevenly against our `rounded-full` circle — square corners
+      and a native border poking through. Fixed globally in `index.css`
+      by stripping the native appearance and zeroing the swatch's own
+      padding/border/radius, leaving only our own circular border visible.
 - [ ] **Owner-dropdowns should group by person**: `<select>` dropdowns that
       list accounts/loans/etc. as plain flat options — Loans' "Secured
       against" (`Loans.tsx`), One-off Events' account/loan/asset target
@@ -213,23 +304,33 @@
       dropdown already filters to one owner so grouping may not apply there;
       One-off Events' target dropdown spans all owners and is the clearest
       case.
-- [ ] **Rename "Today's money" → "Inflation-adjusted"**: the Dashboard
-      nominal/real toggle and its labels (`App.tsx`, `SummaryCards.tsx`,
-      `NetWorthChart.tsx`) — "Inflation-adjusted" is the more precise term.
-- [ ] **Move long descriptions into info popups**: several cards carry a
-      paragraph-length hint under the title (Accounts, Loans, Assets,
-      PensionsAndLisas, Salaries, RateSchedule, etc.) — move the longer ones
-      behind an "ⓘ" popup instead of always-on paragraph text, so the card
-      reads cleaner at a glance. Related to the next item — decide together
-      which explanatory text stays inline, which moves to a popup, and which
-      just gets deleted, rather than doing three separate passes.
-- [ ] **Remove some inline how-to helper text**: things like the "Shift+click
-      to isolate" hint on the net worth chart, the RateSchedule modal's
-      "changes apply from their date onward" line, etc. — some of this reads
-      as over-explaining once the interaction is familiar. Do this alongside
-      the info-popup pass above rather than separately, since both are
-      about the same underlying question (what explanatory text earns its
-      place, and where it lives).
+- [x] **Rename "Today's money" → "Inflation-adjusted"**: renamed the
+      Dashboard toggle button (`App.tsx`), the net worth chart's mode
+      caption (`NetWorthChart.tsx`), and the "at retirement" sub-label
+      (`SummaryCards.tsx`, "in today's money" → "inflation-adjusted").
+- [x] **Move long descriptions into info popups / remove stale helper text**:
+      reviewed every card's paragraph-length hint one at a time rather than
+      an ⓘ-popup-per-field approach — ended up sorting each into one of
+      three buckets instead: delete outright (anything a control already
+      self-documents, e.g. hover tooltips on the as-of icon and rate
+      schedule button — the near-identical Accounts/Assets/Loans/Pensions
+      intro paragraphs, the "Forecast Assumptions"/tax-bands filler lines,
+      the colour-dot explanation, the shared-item caveat now that "Shared"
+      is its own visible bucket, the generic tax-bands mechanics since
+      that's general knowledge not app behaviour); keep inline (anything
+      tightly coupled to the exact control next to it, read at the moment
+      it's relevant, not standing clutter — RateSchedule's modal text, the
+      loan one-off "regardless of sign" caveat, the personal-allowance
+      taper note since that's a genuine lesser-known gotcha, the three
+      short LineItemTable hints, the Data-card backup warning); or move to
+      a new **"How it works" tab** (`Guide.tsx`) — for content a new user
+      genuinely benefits from once but that was being re-explained on every
+      visit: the fixed-rate-model caveat, household/shared-item ownership,
+      balance staleness catch-up, loan equity linking, pensions/LISA
+      caveats (dormant flag, no early-withdrawal-penalty modelling),
+      salary deductions/bonus tax treatment, reading the net worth chart
+      (stacking, "Other" fold, legend interactions, event markers), and
+      Scottish income tax bands.
 
 ## Architecture / Tech debt
 

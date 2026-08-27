@@ -59,11 +59,11 @@ export default function OneOffEvents({ events, accounts, loans, assets, onChange
           +
         </button>
       </div>
-      <p className="text-xs text-inkfaint mb-4">
-        {isExpense
-          ? 'Notable one-time spending — a car, a wedding, a house deposit. Targeting a loan always applies the amount as an extra repayment, regardless of sign. Targeting an asset adjusts its value directly (e.g. a renovation, storm damage).'
-          : "Notable one-time income — an inheritance, a gift, a windfall. Salary bonuses are set up on the Salaries table instead, since they're taxed against that salary specifically."}
-      </p>
+      {isExpense && (
+        <p className="text-xs text-inkfaint mb-4">
+          Targeting a loan always applies the amount as an extra repayment, regardless of sign.
+        </p>
+      )}
 
       <div className="space-y-2">
         {sorted.map((e) => (

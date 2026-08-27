@@ -12,7 +12,7 @@ interface Props {
   onSharedColorChange: (color: string) => void;
 }
 
-const colorInputClass = 'w-6 h-6 rounded-full border border-rule bg-transparent p-0 cursor-pointer';
+const colorInputClass = 'w-4 h-4 rounded-full border border-rule bg-transparent p-0 cursor-pointer';
 
 export default function People({ people, sharedColor, onChange, onSharedColorChange }: Props) {
   function update(id: string, patch: Partial<Person>) {
@@ -32,13 +32,15 @@ export default function People({ people, sharedColor, onChange, onSharedColorCha
       <h3 className="font-display text-lg text-ink mb-1">Household</h3>
       <p className="text-xs text-inkfaint mb-4">
         Add each person whose income, accounts, or debts you want to track separately. Anything
-        not assigned to a person is treated as shared. Each gets a colour used as an identifying
-        dot throughout the app.
+        not assigned to a person is treated as shared.
       </p>
 
-      <div className="space-y-2">
+      <div className="flex flex-wrap items-center gap-2">
         {people.map((p) => (
-          <div key={p.id} className="flex items-center gap-2">
+          <div
+            key={p.id}
+            className="flex items-center gap-1.5 bg-black/[0.03] border border-rule/60 rounded-sm pl-1.5 pr-2 py-1"
+          >
             <input
               type="color"
               value={p.color}
@@ -52,15 +54,12 @@ export default function People({ people, sharedColor, onChange, onSharedColorCha
               onChange={(e) => update(p.id, { name: e.target.value })}
               onFocus={selectOnFocus}
               placeholder="Name"
-              className="flex-1 bg-transparent border-b border-rule py-1 text-sm focus:outline-none focus-visible:border-brass"
+              className="w-24 bg-transparent text-sm focus:outline-none"
             />
-            <RemoveButton onClick={() => remove(p.id)} label={`Remove ${p.name || 'person'}`} />
+            <RemoveButton onClick={() => remove(p.id)} label={`Remove ${p.name || 'person'}`} size="xs" />
           </div>
         ))}
-        {people.length === 0 && (
-          <p className="text-sm text-inkfaint italic">No one added yet — everything is shared.</p>
-        )}
-        <div className="flex items-center gap-2 pt-2 border-t border-rule/60">
+        <div className="flex items-center gap-1.5 bg-black/[0.03] border border-rule/60 rounded-sm pl-1.5 pr-2 py-1">
           <input
             type="color"
             value={sharedColor}
@@ -68,16 +67,15 @@ export default function People({ people, sharedColor, onChange, onSharedColorCha
             aria-label="Colour for Shared"
             className={colorInputClass}
           />
-          <span className="flex-1 py-1 text-sm text-inkfaint">Shared</span>
+          <span className="text-sm text-inkfaint">Shared</span>
         </div>
+        <button
+          onClick={add}
+          className="text-xs font-mono text-teal hover:text-ink border border-teal/40 hover:border-teal rounded-sm px-2 py-1.5"
+        >
+          + add person
+        </button>
       </div>
-
-      <button
-        onClick={add}
-        className="mt-3 text-xs font-mono text-teal hover:text-ink border border-teal/40 hover:border-teal rounded-sm px-2 py-1"
-      >
-        + add person
-      </button>
     </Card>
   );
 }

@@ -247,21 +247,20 @@
 
 ## Polish / UX
 
-- [ ] **One-off event amount sign is inconsistent across targets**: the same
-      signed `amount` field (`OneOffEvents.tsx`) means different things
-      depending on what's targeted — for an account or asset, sign is
-      meaningful (`balances[id] += e.amount`, `projection.ts`), but for a
-      loan it's silently discarded (`loanBalances[id] -= Math.abs(e.amount)`)
-      since a loan-targeted event only ever means "extra repayment," never
-      "extra borrowing." The field doesn't communicate this — it's still
-      styled as signed (brick/teal, `allowNegative`) and lets you type
-      either sign for a loan row, with no visual cue that sign is being
-      ignored there. Fix: when a row targets a loan, treat/display the
-      amount as an unsigned "extra repayment" (no negative entry, no
-      brick/teal sign styling) rather than a signed value that's quietly
-      normalised underneath. While in there, re-check one-off event
-      handling for accounts/assets too, in case there's a similar
-      sign/target mismatch elsewhere that hasn't been noticed yet.
+- [x] **One-off event amount sign is inconsistent across targets**: fixed by
+      making a loan-targeted row genuinely unsigned instead of a signed
+      value that was quietly normalised underneath — `allowNegative` is now
+      `false` whenever `e.loanId` is set (`OneOffEvents.tsx`), and switching
+      a row's target to a loan flips its `amount` to `Math.abs(amount)` at
+      that moment, so the field's own brick/teal styling and ability to
+      type a minus sign no longer lie about what the value does. Removed
+      the now-unnecessary "regardless of sign" caveat text — there's no
+      sign left to explain away. `projection.ts`'s `Math.abs()` on the
+      loan-application line was left in place as a defensive floor for any
+      pre-existing saved data with a negative loan-targeted amount from
+      before this fix. Re-checked accounts/assets while in there — both
+      already use sign correctly and consistently (`balances[id] +=
+      e.amount`), no equivalent mismatch found there.
 
 - [x] **Consistent number formatting**: `formatCurrency` now always shows
       2dp (was 0dp). `NumberInput` defaults to a fixed 2 decimal places too

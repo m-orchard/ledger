@@ -59,12 +59,6 @@ export default function OneOffEvents({ events, accounts, loans, assets, onChange
           +
         </button>
       </div>
-      {isExpense && (
-        <p className="text-xs text-inkfaint mb-4">
-          Targeting a loan always applies the amount as an extra repayment, regardless of sign.
-        </p>
-      )}
-
       <div className="space-y-2">
         {sorted.map((e) => (
           <div key={e.id} className="flex items-center gap-2 flex-wrap">
@@ -87,7 +81,7 @@ export default function OneOffEvents({ events, accounts, loans, assets, onChange
               <NumberInput
                 value={e.amount}
                 onChange={(amount) => update(e.id, { amount })}
-                allowNegative={isExpense}
+                allowNegative={isExpense && !e.loanId}
                 className={`w-24 bg-transparent border-b border-rule py-1 text-sm font-mono text-right tabular focus:outline-none focus-visible:border-brass ${
                   e.amount < 0 ? 'text-brick' : 'text-teal'
                 }`}
@@ -109,6 +103,9 @@ export default function OneOffEvents({ events, accounts, loans, assets, onChange
                   accountId: target === 'account' ? id : undefined,
                   loanId: target === 'loan' ? id : undefined,
                   assetId: target === 'asset' ? id : undefined,
+                  // A loan target only ever means "extra repayment" — normalise to a positive
+                  // magnitude so the field's own sign/colour stops implying it means something else.
+                  amount: target === 'loan' ? Math.abs(e.amount) : e.amount,
                 });
               }}
               className="bg-transparent border-b border-rule py-1 text-xs focus:outline-none"

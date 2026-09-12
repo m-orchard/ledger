@@ -648,6 +648,39 @@ describe('runProjection — loans', () => {
     // With a 300 extra repayment that same month: 800 - 300 = 500.
     expect(points[overpaymentMonth].loanBalances.l1).toBeCloseTo(500, 6);
   });
+
+  it('applies a positive one-off event targeted at a loan as borrowing more (e.g. a further advance)', () => {
+    const advanceMonth = 2;
+    const data = baseData({
+      settings: { ...baseData().settings, projectionEndAge: 31 },
+      loans: [
+        {
+          id: 'l1',
+          name: 'Loan',
+          balance: 1000, balanceAsOf: TODAY,
+          originalAmount: 1000,
+          annualInterestRate: 0,
+          monthlyPayment: 100,
+          ownerId: SHARED_OWNER,
+        },
+      ],
+      oneOffs: [
+        {
+          id: 'o1',
+          name: 'Further advance',
+          kind: 'expense',
+          amount: 500,
+          date: isoDateMonthsFromNow(advanceMonth),
+          loanId: 'l1',
+        },
+      ],
+    });
+
+    const points = runProjection(data);
+    // Without the advance, balance after month 2 would be 1000 - 200 = 800.
+    // With a 500 further advance that same month: 800 + 500 = 1300.
+    expect(points[advanceMonth].loanBalances.l1).toBeCloseTo(1300, 6);
+  });
 });
 
 describe('runProjection — inflation', () => {

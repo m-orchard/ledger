@@ -247,20 +247,25 @@
 
 ## Polish / UX
 
-- [x] **One-off event amount sign is inconsistent across targets**: fixed by
-      making a loan-targeted row genuinely unsigned instead of a signed
-      value that was quietly normalised underneath — `allowNegative` is now
-      `false` whenever `e.loanId` is set (`OneOffEvents.tsx`), and switching
-      a row's target to a loan flips its `amount` to `Math.abs(amount)` at
-      that moment, so the field's own brick/teal styling and ability to
-      type a minus sign no longer lie about what the value does. Removed
-      the now-unnecessary "regardless of sign" caveat text — there's no
-      sign left to explain away. `projection.ts`'s `Math.abs()` on the
-      loan-application line was left in place as a defensive floor for any
-      pre-existing saved data with a negative loan-targeted amount from
-      before this fix. Re-checked accounts/assets while in there — both
-      already use sign correctly and consistently (`balances[id] +=
-      e.amount`), no equivalent mismatch found there.
+- [x] **One-off event amount sign is inconsistent across targets**: first
+      attempt made loan-targeted rows unsigned/repayment-only, but that
+      foreclosed a real scenario — borrowing more against an existing loan
+      (a further advance, releasing equity, drawing down a flexible/offset
+      mortgage) genuinely increases what's owed. Corrected fix: made sign
+      *meaningful* rather than removing it, using the exact same formula
+      already used for accounts/assets. `projection.ts`'s loan-application
+      line changed from `loanBalances[id] - Math.abs(e.amount)` to
+      `loanBalances[id] + e.amount` (still clamped at 0) — negative
+      (expense, money leaving you) is an extra repayment, positive
+      (income, money coming to you) is borrowing more, exactly matching
+      `balances[id] += e.amount` for accounts/assets rather than being a
+      special case. `OneOffEvents.tsx` reverted to the original signed
+      `NumberInput` (no more forced-positive normalisation on target
+      change), with a short caption restored explaining what each sign
+      means specifically for a loan target (unlike accounts, "positive
+      increases the balance" isn't obvious when the balance represents
+      debt). Added a test locking in the new "borrowing more" case
+      alongside the existing repayment one.
 
 - [x] **Consistent number formatting**: `formatCurrency` now always shows
       2dp (was 0dp). `NumberInput` defaults to a fixed 2 decimal places too

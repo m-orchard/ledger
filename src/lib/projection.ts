@@ -209,10 +209,12 @@ export function runProjection(data: AppData): ProjectionPoint[] {
         loanPaymentsThisMonth += payment;
       });
 
-      // 5. Apply one-off overpayments targeted at a loan
+      // 5. Apply one-off events targeted at a loan — same signed convention as accounts/assets:
+      // negative (an expense, money leaving you) is an extra repayment, positive (income, money
+      // coming to you) is borrowing more, e.g. a further advance.
       eventsThisMonth.forEach((e) => {
         if (e.loanId && loanBalances[e.loanId] !== undefined) {
-          loanBalances[e.loanId] = Math.max(0, loanBalances[e.loanId] - Math.abs(e.amount));
+          loanBalances[e.loanId] = Math.max(0, loanBalances[e.loanId] + e.amount);
         }
       });
     } else {

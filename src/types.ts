@@ -167,6 +167,16 @@ export interface SalaryBonus {
   date: string;
 }
 
+export interface SalaryChange {
+  id: string;
+  /** ISO date this change takes effect from */
+  date: string;
+  /** Fully replaces the salary's grossAnnual/sacrificePercent/employerContributionPercent from this date onward — not a partial override */
+  grossAnnual: number;
+  sacrificePercent: number;
+  employerContributionPercent: number;
+}
+
 export interface Salary {
   id: string;
   name: string;
@@ -181,6 +191,16 @@ export interface Salary {
   otherDeductions: SalaryDeduction[];
   /** One-off gross bonuses, taxed at this salary's marginal rate in the month they land */
   bonuses: SalaryBonus[];
+  /** Scheduled future pay rises / job changes — the latest change on or before a given date wins, same rule as RateChange */
+  scheduledChanges?: SalaryChange[];
+  /**
+   * ISO date this role ends. From this date onward the salary contributes no income, tax, NI,
+   * or pension routing, and its bonuses stop applying — but the row, its bonuses/deductions,
+   * and its scheduledChanges history are all preserved, not deleted. Deleting the Salary row
+   * itself remains the way to remove it from the model entirely; this is for "this job ended,
+   * but I want to keep the record" instead.
+   */
+  endDate?: string;
   /** A Person.id, or SHARED_OWNER */
   ownerId: string;
 }

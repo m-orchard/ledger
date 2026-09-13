@@ -1,5 +1,5 @@
-import type { AppData, ProjectionPoint, RateChange } from '../types';
-import { calcSalaryBreakdown, calcBonusNet } from './tax';
+import type { AppData, ProjectionPoint, RateChange, Salary } from '../types';
+import { calcSalaryBreakdown, calcBonusNet, type SalaryBreakdown } from './tax';
 import { toMonthlyAmount } from './frequency';
 import { calcLisaBonus } from './lisa';
 
@@ -33,6 +33,52 @@ function effectiveRate(baseRate: number, changes: RateChange[] | undefined, date
   }
   return rate;
 }
+
+/**
+ * A salary's grossAnnual/sacrificePercent/employerContributionPercent as they stand for
+ * `date`, given any scheduled future changes — same "latest wins" rule as effectiveRate,
+ * except a change always fully replaces all three fields together, never a partial override
+ * (mirrors how a SalaryChange is defined).
+ */
+function effectiveSalary(salary: Salary, date: Date): Salary {
+  const changes = salary.scheduledChanges;
+  if (!changes || changes.length === 0) return salary;
+  let effective = salary;
+  let latest: Date | null = null;
+  for (const c of changes) {
+    const d = parseLocalDate(c.date);
+    if (d <= date && (!latest || d > latest)) {
+      effective = {
+        ...salary,
+        grossAnnual: c.grossAnnual,
+        sacrificePercent: c.sacrificePercent,
+        employerContributionPercent: c.employerContributionPercent,
+      };
+      latest = d;
+    }
+  }
+  return effective;
+}
+
+/**
+ * Whether `salary` is still "live" for `date` — false from its `endDate`'s month onward, if
+ * set. Ended salaries contribute nothing (income, tax, NI, pension routing, bonuses) from that
+ * point, but nothing about the salary itself is deleted; this only affects the projection.
+ */
+function isSalaryActive(salary: Salary, date: Date): boolean {
+  return !salary.endDate || date < parseLocalDate(salary.endDate);
+}
+
+/** A breakdown of all zeros, for a salary that has ended (see isSalaryActive) — avoids running its figures (e.g. flat otherDeductions) through the normal formulas against a zeroed gross, which could otherwise go negative. */
+const ZERO_SALARY_BREAKDOWN: SalaryBreakdown = {
+  takeHomeMonthly: 0,
+  incomeTaxMonthly: 0,
+  niMonthly: 0,
+  sacrificeMonthly: 0,
+  employerContributionMonthly: 0,
+  pensionContributionMonthly: 0,
+  otherDeductionsMonthly: 0,
+};
 
 /** Whole calendar months between two day-1 dates, never negative (e.g. an "as of" date in the future). */
 function monthsBetween(from: Date, to: Date): number {
@@ -83,7 +129,8 @@ function catchUpLoanBalance(balance: number, asOf: string, today: Date, rateAt: 
  * This is a deterministic, fixed-rate model (not a Monte Carlo
  * simulation) — it answers "what happens if my assumed rates hold",
  * which is the right starting point before layering in uncertainty.
- * Salaries are likewise modelled as a fixed nominal gross figure.
+ * A salary's gross/sacrifice/employer figures are likewise fixed nominal
+ * values unless scheduled to change via `Salary.scheduledChanges`.
  */
 export function runProjection(data: AppData): ProjectionPoint[] {
   const { settings, accounts, assets, income, expenses, salaries, loans, oneOffs } = data;
@@ -95,27 +142,32 @@ export function runProjection(data: AppData): ProjectionPoint[] {
   const startDate = new Date();
   const today = new Date(startDate.getFullYear(), startDate.getMonth(), 1);
 
-  const salaryBreakdowns = salaries.map((s) => calcSalaryBreakdown(s, settings.tax));
-
-  // Each account's own monthly contribution, plus any salary sacrifice/employer
-  // pension contributions routed to it, and any Lifetime ISA government bonus.
-  // This merged map drives balance growth — computed before the catch-up pass
-  // below so it can assume the same steady contribution held during the gap.
-  const contributionsByAccount: Record<string, number> = {};
+  // Each account's own monthly contribution, plus any Lifetime ISA government bonus. The
+  // salary-routed portion (sacrifice + employer) is added separately, per month, inside the
+  // loop below — it can now vary over time via a salary's scheduledChanges, so it can no
+  // longer be folded into one fixed-for-the-whole-projection map the way this used to be.
+  const ownContributionByAccount: Record<string, number> = {};
   accounts.forEach((a) => {
     const ownMonthly = toMonthlyAmount(a.contributionAmount, a.contributionFrequency);
     const bonus = a.type === 'lifetime-isa' ? calcLisaBonus(ownMonthly) : 0;
-    contributionsByAccount[a.id] = ownMonthly + bonus;
+    ownContributionByAccount[a.id] = ownMonthly + bonus;
   });
+
+  // Balances are stored "as of" a date that may be in the past — fast-forward each to today
+  // first (see catchUpBalance/catchUpLoanBalance above) so a months-old figure isn't silently
+  // treated as true right now. The catch-up pass assumes today's effective salary figures
+  // held steady during that gap — the same simplifying assumption already made for every
+  // other flat rate/contribution here.
+  const todaysSalaryBreakdowns = salaries.map((s) =>
+    isSalaryActive(s, today) ? calcSalaryBreakdown(effectiveSalary(s, today), settings.tax) : ZERO_SALARY_BREAKDOWN
+  );
+  const contributionsByAccountToday: Record<string, number> = { ...ownContributionByAccount };
   salaries.forEach((s, i) => {
-    if (s.pensionAccountId && contributionsByAccount[s.pensionAccountId] !== undefined) {
-      contributionsByAccount[s.pensionAccountId] += salaryBreakdowns[i].pensionContributionMonthly;
+    if (s.pensionAccountId && contributionsByAccountToday[s.pensionAccountId] !== undefined) {
+      contributionsByAccountToday[s.pensionAccountId] += todaysSalaryBreakdowns[i].pensionContributionMonthly;
     }
   });
 
-  // Balances are stored "as of" a date that may be in the past — fast-forward
-  // each to today first (see catchUpBalance/catchUpLoanBalance above) so a
-  // months-old figure isn't silently treated as if it were true right now.
   const balances: Record<string, number> = {};
   accounts.forEach((a) => {
     balances[a.id] = catchUpBalance(
@@ -123,7 +175,7 @@ export function runProjection(data: AppData): ProjectionPoint[] {
       a.balanceAsOf,
       today,
       (date) => effectiveRate(a.annualGrowthRate, a.rateChanges, date),
-      contributionsByAccount[a.id] ?? 0
+      contributionsByAccountToday[a.id] ?? 0
     );
   });
 
@@ -147,8 +199,6 @@ export function runProjection(data: AppData): ProjectionPoint[] {
 
   const recurringIncome = income.reduce((s, i) => s + toMonthlyAmount(i.amount, i.frequency), 0);
   const recurringExpenses = expenses.reduce((s, i) => s + toMonthlyAmount(i.amount, i.frequency), 0);
-  const salaryTakeHome = salaryBreakdowns.reduce((s, b) => s + b.takeHomeMonthly, 0);
-  const baseIncome = recurringIncome + salaryTakeHome;
 
   // Cash surplus only reflects money that actually moved through take-home pay:
   // salary sacrifice/employer contributions and the Lifetime ISA government bonus
@@ -167,6 +217,13 @@ export function runProjection(data: AppData): ProjectionPoint[] {
 
     const eventsThisMonth = oneOffs.filter((e) => sameMonth(new Date(e.date), date));
 
+    // Each salary's gross/sacrifice/employer figures resolved for this month's date — they
+    // can change over time via scheduledChanges (a pay rise, a new job, etc), or drop to
+    // nothing entirely once past the salary's endDate (the role has ended).
+    const salaryBreakdownsThisMonth = salaries.map((s) =>
+      isSalaryActive(s, date) ? calcSalaryBreakdown(effectiveSalary(s, date), settings.tax) : ZERO_SALARY_BREAKDOWN
+    );
+
     let loanPaymentsThisMonth = 0;
 
     if (m > 0) {
@@ -176,9 +233,15 @@ export function runProjection(data: AppData): ProjectionPoint[] {
         balances[a.id] = balances[a.id] * (1 + monthlyRate);
       });
 
-      // 2. Apply regular contributions (own + routed salary sacrifice/employer)
+      // 2. Apply regular contributions (own + routed salary sacrifice/employer, resolved above for this month)
       accounts.forEach((a) => {
-        balances[a.id] += contributionsByAccount[a.id] ?? 0;
+        let contribution = ownContributionByAccount[a.id] ?? 0;
+        salaries.forEach((s, i) => {
+          if (s.pensionAccountId === a.id) {
+            contribution += salaryBreakdownsThisMonth[i].pensionContributionMonthly;
+          }
+        });
+        balances[a.id] += contribution;
       });
 
       // 3. Apply one-off events targeted at an account
@@ -234,14 +297,19 @@ export function runProjection(data: AppData): ProjectionPoint[] {
     const monthlyExpenses = recurringExpenses + loanPaymentsThisMonth;
 
     // A salary bonus is taxed at that salary's marginal rate (pushing into a
-    // higher band if it's large enough), not treated as flat untaxed cash.
+    // higher band if it's large enough), not treated as flat untaxed cash —
+    // against that salary's gross/sacrifice figures as they stand this month.
+    // A bonus dated after the salary's endDate doesn't apply — the role's ended.
     const netBonusThisMonth = salaries.reduce((s, salary) => {
+      if (!isSalaryActive(salary, date)) return s;
       const bonusesThisMonth = salary.bonuses.filter((b) => sameMonth(new Date(b.date), date));
+      const effective = effectiveSalary(salary, date);
       return (
-        s + bonusesThisMonth.reduce((sum, b) => sum + calcBonusNet(salary, b.amount, settings.tax).netBonus, 0)
+        s + bonusesThisMonth.reduce((sum, b) => sum + calcBonusNet(effective, b.amount, settings.tax).netBonus, 0)
       );
     }, 0);
-    const monthlyIncome = baseIncome + netBonusThisMonth;
+    const salaryTakeHomeThisMonth = salaryBreakdownsThisMonth.reduce((s, b) => s + b.takeHomeMonthly, 0);
+    const monthlyIncome = recurringIncome + salaryTakeHomeThisMonth + netBonusThisMonth;
 
     // Cash flow not tied to an account, loan, or asset (unassigned one-offs) shown for context only
     const unassignedEventTotal = eventsThisMonth

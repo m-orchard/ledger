@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import type { RateChange } from '../types';
 import { newId } from '../lib/storage';
+import { hasDateCollision, firstFreeDate } from '../lib/scheduleValidation';
 import NumberInput from './NumberInput';
 import Modal from './Modal';
 import RemoveButton from './RemoveButton';
@@ -21,20 +22,29 @@ interface Props {
  */
 export default function RateSchedule({ label, changes, onChange, allowNegative }: Props) {
   const [open, setOpen] = useState(false);
+  const [conflictId, setConflictId] = useState<string | null>(null);
   const sorted = [...changes].sort((a, b) => a.date.localeCompare(b.date));
 
   function update(id: string, patch: Partial<RateChange>) {
+    if (patch.date !== undefined && hasDateCollision(changes, id, patch.date)) {
+      setConflictId(id);
+      return;
+    }
+    setConflictId(null);
     onChange(changes.map((c) => (c.id === id ? { ...c, ...patch } : c)));
   }
 
   function remove(id: string) {
+    if (conflictId === id) setConflictId(null);
     onChange(changes.filter((c) => c.id !== id));
   }
 
   function add() {
     const nextYear = new Date();
     nextYear.setFullYear(nextYear.getFullYear() + 1);
-    onChange([...changes, { id: newId(), date: nextYear.toISOString().slice(0, 10), rate: 0 }]);
+    const iso = `${nextYear.getFullYear()}-${String(nextYear.getMonth() + 1).padStart(2, '0')}-${String(nextYear.getDate()).padStart(2, '0')}`;
+    const date = firstFreeDate(changes, iso);
+    onChange([...changes, { id: newId(), date, rate: 0 }]);
   }
 
   return (
@@ -57,23 +67,30 @@ export default function RateSchedule({ label, changes, onChange, allowNegative }
 
           <div className="space-y-2">
             {sorted.map((c) => (
-              <div key={c.id} className="flex items-center gap-2">
-                <input
-                  type="date"
-                  value={c.date}
-                  onChange={(e) => update(c.id, { date: e.target.value })}
-                  className="flex-1 bg-transparent border-b border-rule py-1 text-sm font-mono focus:outline-none focus-visible:border-brass"
-                />
-                <div className="flex items-center gap-1">
-                  <NumberInput
-                    value={c.rate}
-                    onChange={(rate) => update(c.id, { rate })}
-                    allowNegative={allowNegative}
-                    className="w-16 bg-transparent border-b border-rule py-1 text-sm font-mono text-right tabular focus:outline-none focus-visible:border-brass"
+              <div key={c.id}>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="date"
+                    value={c.date}
+                    onChange={(e) => update(c.id, { date: e.target.value })}
+                    className={`flex-1 bg-transparent border-b py-1 text-sm font-mono focus:outline-none focus-visible:border-brass ${
+                      conflictId === c.id ? 'border-brick' : 'border-rule'
+                    }`}
                   />
-                  <span className="text-xs text-inkfaint">%</span>
+                  <div className="flex items-center gap-1">
+                    <NumberInput
+                      value={c.rate}
+                      onChange={(rate) => update(c.id, { rate })}
+                      allowNegative={allowNegative}
+                      className="w-16 bg-transparent border-b border-rule py-1 text-sm font-mono text-right tabular focus:outline-none focus-visible:border-brass"
+                    />
+                    <span className="text-xs text-inkfaint">%</span>
+                  </div>
+                  <RemoveButton onClick={() => remove(c.id)} label="Remove change" />
                 </div>
-                <RemoveButton onClick={() => remove(c.id)} label="Remove change" />
+                {conflictId === c.id && (
+                  <p className="text-[11px] text-brick mt-0.5">Already have a change on that date.</p>
+                )}
               </div>
             ))}
             {sorted.length === 0 && <p className="text-xs text-inkfaint italic">No scheduled changes yet.</p>}

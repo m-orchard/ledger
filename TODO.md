@@ -51,21 +51,93 @@
       change, a one-off purchase, adjusted contributions) on top of the base
       "real" data, without losing/overwriting the real numbers — so different
       what-ifs can be compared without re-entering everything.
-- [ ] **Time-based salaries**: `Salary.grossAnnual` (and the sacrifice/
-      employer percentages) is a single flat figure for the whole
-      projection, same as accounts/loans/assets were before "Variable
-      rates over time" — but salaries change too (pay rises, a new job, a
-      sacrifice percentage adjustment) and there's currently no way to
-      schedule that. Natural to model the same way: a `RateChange`-style
-      list of scheduled `{ date, grossAnnual }` (and maybe
-      sacrifice/employer percentage) changes, picked up by
-      `calcSalaryBreakdown`/`runProjection` the same way `effectiveRate`
-      already resolves a scheduled value for a given date. Related to the
-      still-open "rate side" of data staleness above (a salary that hasn't
-      been bumped after a pay rise is the same judgement problem as a
-      stale growth-rate assumption) but distinct: this is about
-      *scheduling known future changes*, not about *flagging unreviewed
-      ones*.
+- [x] **Time-based salaries**: new `SalaryChange { id, date, grossAnnual,
+      sacrificePercent, employerContributionPercent }`, on an optional
+      `Salary.scheduledChanges[]` (no migration needed — same pattern as
+      `rateChanges`). A change fully replaces all three fields together
+      ("latest one on/before the date wins", same rule as `RateChange`)
+      rather than allowing a partial override, avoiding any ambiguity
+      about what a partial change would even mean. Edited via a
+      `SalarySchedule` trigger next to Gross/yr — same `+`/count-then-Modal
+      pattern as `RateSchedule`, one compact row per change (date +
+      gross/sacrifice %/employer %) with column labels shown once above
+      the list, not per row. First pass used a bordered card per entry
+      with its own repeated field labels; caught on review as the same
+      shape of redundancy trimmed everywhere else this session, and also
+      a worse fit for someone with several changes over a long projection
+      (a promotion or two, a job change) — switched to the row layout,
+      confirmed it fits the modal's width with no overflow.
+
+      The real work was in `projection.ts`: salary breakdowns
+      (tax/NI/take-home/pension-contribution) used to be computed *once*,
+      before the month loop even started, and reused unchanged for every
+      month of the projection — `baseIncome` and the salary-routed portion
+      of `contributionsByAccount` were both fixed constants. Made this
+      genuinely month-by-month: a new `effectiveSalary(salary, date)`
+      resolver (mirrors `effectiveRate` but resolves three linked fields
+      together) is used to recompute each salary's breakdown fresh inside
+      the loop, for both the take-home income figure and the pension
+      contribution routed to a linked account each month, and also for a
+      bonus's marginal-rate tax calculation (now computed against that
+      salary's figures *as they stood on the bonus's own date*, not
+      whatever they are today). The one-time pre-loop computation is kept
+      only for the "as of" catch-up phase, using today's effective figures
+      as its steady assumption for the historical gap — same simplifying
+      approach already used there for every other flat rate/contribution.
+      Added tests covering a pay rise changing take-home income from its
+      date onward, and a scheduled sacrifice/employer % change altering
+      what's routed to a linked pension account from its date onward, on
+      top of the 59 existing tests (all still pass unchanged, confirming
+      the refactor didn't alter behaviour for salaries with no schedule).
+
+      **Follow-up, same pass**: reviewing the row-vs-card layout question
+      above led to a real gap this feature had introduced — there was no
+      way to mark a role as "ended" at all, only to delete the Salary row
+      outright (immediate, retroactive to the whole projection, and
+      destroys its bonus/deduction history). Fixed with `Salary.endDate?:
+      string` — from that date, `isSalaryActive()` makes the salary
+      contribute nothing (income/tax/NI/pension routing/bonuses) via a
+      `ZERO_SALARY_BREAKDOWN` short-circuit (avoids running flat
+      `otherDeductions` through the normal formula against a zeroed gross,
+      which would otherwise go negative), while the row, its bonuses,
+      deductions, and scheduled-change history are all left exactly as
+      entered. Editable from the same `SalarySchedule` popup (a "Role
+      ends" field at the top, with a "clear" link) rather than a new
+      trigger — it's the natural home for "things that change this
+      salary's status over time." The trigger itself turns brick-coloured
+      and reads "ended" once set, and the main table shows "Ended
+      {date}" under the salary's name, so this is visible without opening
+      anything. The card's own "current" summary totals (`totalTakeHome`
+      and the per-owner `OwnerGroupedList` total) also exclude a salary
+      whose end date has already passed, via a `hasEnded()` check — those
+      are a today-only snapshot, not projection-aware, so they needed the
+      same fix independently of the engine change. Added two tests: income
+      and pension routing stop from the end date (with a flat deduction
+      present, to specifically exercise the negative-taxable-income
+      pitfall), and a bonus dated after the end date is excluded.
+
+      **Second follow-up, same pass**: asked whether changes can overlap —
+      they can't, by construction: `effectiveRate`/`effectiveSalary` only
+      ever pick one "latest date on or before" winner, so a change is
+      implicitly in effect until the next-dated one takes over. The one
+      real gap was two changes sharing the *exact same* date, which
+      silently fell back to array order (first-in-array wins) rather than
+      anything meaningful. Added `src/lib/scheduleValidation.ts`
+      (`hasDateCollision`, `firstFreeDate`), shared by `RateSchedule` and
+      `SalarySchedule`: a date edit that would collide with another entry
+      in the same list is rejected (the field's border turns brick, with
+      an inline "Already have a change on that date" message) rather than
+      silently applied, and a newly-added change's default date is bumped
+      forward to the first free day instead of risking an instant
+      collision. Caught a real bug writing `firstFreeDate` itself — its
+      day-increment used `.toISOString()`, which converts to UTC and can
+      shift the date backward a day depending on timezone offset, turning
+      "add a day" into "add nothing" and looping forever; reproduced as an
+      actual browser tab crash via Playwright before being fixed to use
+      local calendar components throughout, the same discipline
+      `parseLocalDate`/`todayISO()` already enforce elsewhere in this
+      codebase. Added `scheduleValidation.test.ts` (6 tests, including a
+      regression case spanning a year boundary) to lock in the fix.
 - [x] **Salary bonuses**: bonuses live on the Salary itself now (a nested
       list, same pattern as "Other sacrifice deductions"), not as a
       salary-targeted One-off Event — a bonus is income, and One-off Events

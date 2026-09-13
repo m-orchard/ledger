@@ -332,6 +332,163 @@ describe('runProjection — salaries', () => {
   });
 });
 
+describe('runProjection — scheduled salary changes', () => {
+  it('applies a scheduled pay rise to take-home income from its date onward, not before', () => {
+    const raiseMonth = 3;
+    const data = baseData({
+      settings: { ...baseData().settings, projectionEndAge: 31 },
+      salaries: [
+        {
+          id: 's1',
+          name: 'Salary',
+          grossAnnual: 40000,
+          sacrificePercent: 0,
+          employerContributionPercent: 0,
+          otherDeductions: [],
+          bonuses: [],
+          scheduledChanges: [
+            {
+              id: 'c1',
+              date: isoDateMonthsFromNow(raiseMonth),
+              grossAnnual: 60000,
+              sacrificePercent: 0,
+              employerContributionPercent: 0,
+            },
+          ],
+          ownerId: SHARED_OWNER,
+        },
+      ],
+    });
+
+    const points = runProjection(data);
+    // Before the raise, take-home should reflect the base 40k salary.
+    const before = points[raiseMonth - 1].monthlyIncome;
+    // From the raise's month onward, take-home should reflect the higher 60k salary.
+    const after = points[raiseMonth].monthlyIncome;
+    expect(after).toBeGreaterThan(before);
+  });
+
+  it('routes a scheduled sacrifice/employer % change to a linked pension account from its date onward', () => {
+    const changeMonth = 3;
+    const data = baseData({
+      settings: { ...baseData().settings, projectionEndAge: 31 },
+      accounts: [
+        {
+          id: 'pension',
+          name: 'Workplace pension',
+          type: 'pension',
+          balance: 0, balanceAsOf: TODAY,
+          annualGrowthRate: 0,
+          contributionAmount: 0,
+          contributionFrequency: 'monthly',
+          ownerId: SHARED_OWNER,
+        },
+      ],
+      salaries: [
+        {
+          id: 's1',
+          name: 'Salary',
+          grossAnnual: 60000,
+          sacrificePercent: 5,
+          employerContributionPercent: 3,
+          pensionAccountId: 'pension',
+          otherDeductions: [],
+          bonuses: [],
+          scheduledChanges: [
+            {
+              id: 'c1',
+              date: isoDateMonthsFromNow(changeMonth),
+              grossAnnual: 60000,
+              sacrificePercent: 10,
+              employerContributionPercent: 3,
+            },
+          ],
+          ownerId: SHARED_OWNER,
+        },
+      ],
+    });
+
+    const points = runProjection(data);
+    // Before the change takes effect (month 1, well ahead of the month-3 change):
+    // (5% + 3%) of 60000 / 12 = 400/mo contribution.
+    const contributionBefore = points[1].accountBalances.pension - points[0].accountBalances.pension;
+    expect(contributionBefore).toBeCloseTo(400, 6);
+    // From the change's own month onward: (10% + 3%) of 60000 / 12 = 650/mo.
+    const contributionAfter = points[changeMonth].accountBalances.pension - points[changeMonth - 1].accountBalances.pension;
+    expect(contributionAfter).toBeCloseTo(650, 6);
+  });
+});
+
+describe('runProjection — ended salaries', () => {
+  it('stops income and pension routing from the endDate onward, without deleting anything', () => {
+    const endMonth = 3;
+    const data = baseData({
+      settings: { ...baseData().settings, projectionEndAge: 31 },
+      accounts: [
+        {
+          id: 'pension',
+          name: 'Workplace pension',
+          type: 'pension',
+          balance: 0, balanceAsOf: TODAY,
+          annualGrowthRate: 0,
+          contributionAmount: 0,
+          contributionFrequency: 'monthly',
+          ownerId: SHARED_OWNER,
+        },
+      ],
+      salaries: [
+        {
+          id: 's1',
+          name: 'Old job',
+          grossAnnual: 60000,
+          sacrificePercent: 5,
+          employerContributionPercent: 3,
+          pensionAccountId: 'pension',
+          otherDeductions: [{ id: 'd1', name: 'Health insurance', amount: 50, frequency: 'monthly' }],
+          bonuses: [],
+          endDate: isoDateMonthsFromNow(endMonth),
+          ownerId: SHARED_OWNER,
+        },
+      ],
+    });
+
+    const points = runProjection(data);
+    // Before the end date, this salary is still earning and routing to the pension.
+    expect(points[1].monthlyIncome).toBeGreaterThan(0);
+    const contributionBefore = points[1].accountBalances.pension - points[0].accountBalances.pension;
+    expect(contributionBefore).toBeGreaterThan(0);
+    // From the end date's month onward: no income, no pension contribution — and no
+    // negative-taxable-income artefact from the flat otherDeductions still being present.
+    expect(points[endMonth].monthlyIncome).toBe(0);
+    const contributionAfter = points[endMonth].accountBalances.pension - points[endMonth - 1].accountBalances.pension;
+    expect(contributionAfter).toBe(0);
+  });
+
+  it('excludes a bonus dated after the salary has ended', () => {
+    const endMonth = 2;
+    const bonusMonth = 4;
+    const data = baseData({
+      settings: { ...baseData().settings, projectionEndAge: 31 },
+      salaries: [
+        {
+          id: 's1',
+          name: 'Old job',
+          grossAnnual: 60000,
+          sacrificePercent: 0,
+          employerContributionPercent: 0,
+          otherDeductions: [],
+          bonuses: [{ id: 'b1', name: 'Leaving bonus', amount: 5000, date: isoDateMonthsFromNow(bonusMonth) }],
+          endDate: isoDateMonthsFromNow(endMonth),
+          ownerId: SHARED_OWNER,
+        },
+      ],
+    });
+
+    const points = runProjection(data);
+    expect(points[bonusMonth].monthlyIncome).toBe(0);
+  });
+});
+
 describe('runProjection — bonuses', () => {
   it('adds a net (taxed) bonus to income only in the month it is dated', () => {
     const bonusMonth = 2;

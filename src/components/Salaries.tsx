@@ -3,6 +3,7 @@ import type { Account, Frequency, Salary, SalaryBonus, SalaryDeduction, Settings
 import { newId } from '../lib/storage';
 import { formatCurrency } from '../lib/format';
 import { calcSalaryBreakdown } from '../lib/tax';
+import { parseLocalDate } from '../lib/projection';
 import { toMonthlyAmount } from '../lib/frequency';
 import { formatRelativeDate } from '../lib/date';
 import { selectOnFocus } from '../lib/selectOnFocus';
@@ -14,6 +15,7 @@ import RemoveButton from './RemoveButton';
 import OwnerGroupedList from './OwnerGroupedList';
 import Modal from './Modal';
 import PensionRateFields from './PensionRateFields';
+import SalarySchedule from './SalarySchedule';
 
 interface Props {
   salaries: Salary[];
@@ -98,8 +100,13 @@ export default function Salaries({ salaries, accounts, tax, onChange }: Props) {
     });
   }
 
+  /** Whether a salary's endDate has already passed — excluded from "current" summary totals (the projection itself handles the transition month-by-month; these headers are a today-only snapshot). */
+  function hasEnded(salary: Salary): boolean {
+    return !!salary.endDate && parseLocalDate(salary.endDate) <= new Date();
+  }
+
   const totalTakeHome = salaries.reduce(
-    (s, sal) => s + calcSalaryBreakdown(sal, tax).takeHomeMonthly,
+    (s, sal) => s + (hasEnded(sal) ? 0 : calcSalaryBreakdown(sal, tax).takeHomeMonthly),
     0
   );
 
@@ -123,7 +130,9 @@ export default function Salaries({ salaries, accounts, tax, onChange }: Props) {
           </thead>
           <tbody>
             {list.map((s) => {
-              const breakdown = calcSalaryBreakdown(s, tax);
+              const breakdown = hasEnded(s)
+                ? { takeHomeMonthly: 0, incomeTaxMonthly: 0, niMonthly: 0 }
+                : calcSalaryBreakdown(s, tax);
               return (
                   <tr key={s.id} className="border-b border-rule/60">
                     <td className="py-2 pr-2">
@@ -135,13 +144,30 @@ export default function Salaries({ salaries, accounts, tax, onChange }: Props) {
                         placeholder="Salary name"
                         className="w-full bg-transparent focus:outline-none focus-visible:border-b focus-visible:border-brass"
                       />
+                      {s.endDate && (
+                        <span className="block text-[11px] text-inkfaint italic mt-0.5">Ended {s.endDate}</span>
+                      )}
                     </td>
                     <td className="py-2 pr-2 text-right">
-                      <NumberInput
-                        value={s.grossAnnual}
-                        onChange={(grossAnnual) => update(s.id, { grossAnnual })}
-                        className="w-24 bg-transparent text-right font-mono tabular focus:outline-none"
-                      />
+                      <div className="flex items-center justify-end gap-1">
+                        <NumberInput
+                          value={s.grossAnnual}
+                          onChange={(grossAnnual) => update(s.id, { grossAnnual })}
+                          className="w-24 bg-transparent text-right font-mono tabular focus:outline-none"
+                        />
+                        <SalarySchedule
+                          label={`${s.name || 'Salary'} — scheduled changes`}
+                          changes={s.scheduledChanges ?? []}
+                          onChange={(scheduledChanges) => update(s.id, { scheduledChanges })}
+                          current={{
+                            grossAnnual: s.grossAnnual,
+                            sacrificePercent: s.sacrificePercent,
+                            employerContributionPercent: s.employerContributionPercent,
+                          }}
+                          endDate={s.endDate}
+                          onEndDateChange={(endDate) => update(s.id, { endDate })}
+                        />
+                      </div>
                     </td>
                     <td className="py-2 pr-2">
                       <PensionControl
@@ -200,7 +226,7 @@ export default function Salaries({ salaries, accounts, tax, onChange }: Props) {
         items={salaries}
         getOwnerId={(s) => s.ownerId}
         total={(list) =>
-          `${formatCurrency(list.reduce((s, sal) => s + calcSalaryBreakdown(sal, tax).takeHomeMonthly, 0), currency)}/mo`
+          `${formatCurrency(list.reduce((s, sal) => s + (hasEnded(sal) ? 0 : calcSalaryBreakdown(sal, tax).takeHomeMonthly), 0), currency)}/mo`
         }
         totalClassName="text-teal"
       >

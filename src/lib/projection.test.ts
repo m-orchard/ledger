@@ -840,6 +840,106 @@ describe('runProjection — loans', () => {
   });
 });
 
+describe('runProjection — one-off events dated in the past', () => {
+  it('applies a past-dated one-off event targeted at an account, unlike the old forward-only loop', () => {
+    const data = baseData({
+      accounts: [
+        {
+          id: 'a1',
+          name: 'Savings',
+          type: 'cash',
+          balance: 1000, balanceAsOf: TODAY,
+          annualGrowthRate: 0,
+          contributionAmount: 0,
+          contributionFrequency: 'monthly',
+          ownerId: SHARED_OWNER,
+        },
+      ],
+      oneOffs: [
+        {
+          id: 'o1',
+          name: 'Inheritance',
+          kind: 'income',
+          amount: 5000,
+          date: isoDateMonthsFromNow(-3),
+          accountId: 'a1',
+        },
+      ],
+    });
+
+    const points = runProjection(data);
+    // The event landed 3 months before "today" — today's balance should already include it,
+    // not silently exclude it just because the loop used to never visit a month before today.
+    expect(points[0].accountBalances.a1).toBeCloseTo(6000, 6);
+  });
+
+  it('applies a past-dated one-off repayment targeted at a loan', () => {
+    const data = baseData({
+      loans: [
+        {
+          id: 'l1',
+          name: 'Loan',
+          balance: 5000, balanceAsOf: TODAY,
+          originalAmount: 5000,
+          annualInterestRate: 0,
+          monthlyPayment: 0,
+          ownerId: SHARED_OWNER,
+        },
+      ],
+      oneOffs: [
+        {
+          id: 'o1',
+          name: 'Overpayment',
+          kind: 'expense',
+          amount: -2000,
+          date: isoDateMonthsFromNow(-2),
+          loanId: 'l1',
+        },
+      ],
+    });
+
+    const points = runProjection(data);
+    expect(points[0].loanBalances.l1).toBeCloseTo(3000, 6);
+  });
+
+  it('lets two accounts with different "as of" staleness each catch up independently', () => {
+    const data = baseData({
+      accounts: [
+        {
+          id: 'stale',
+          name: 'Untouched for 6 months',
+          type: 'savings',
+          balance: 10000,
+          balanceAsOf: isoDateMonthsFromNow(-6),
+          annualGrowthRate: 12,
+          contributionAmount: 0,
+          contributionFrequency: 'monthly',
+          ownerId: SHARED_OWNER,
+        },
+        {
+          id: 'fresh',
+          name: 'Checked today',
+          type: 'savings',
+          balance: 10000,
+          balanceAsOf: TODAY,
+          annualGrowthRate: 12,
+          contributionAmount: 0,
+          contributionFrequency: 'monthly',
+          ownerId: SHARED_OWNER,
+        },
+      ],
+    });
+
+    const points = runProjection(data);
+    const monthlyRate = Math.pow(1.12, 1 / 12) - 1;
+    let expectedStale = 10000;
+    for (let i = 0; i < 6; i++) expectedStale *= 1 + monthlyRate;
+    expect(points[0].accountBalances.stale).toBeCloseTo(expectedStale, 6);
+    // The fresh account was confirmed today, so no catch-up growth has been applied to it yet.
+    expect(points[0].accountBalances.fresh).toBe(10000);
+  });
+});
+
 describe('runProjection — inflation', () => {
   it('exposes an inflationFactor consistent with totalNetWorthReal, compounding annually', () => {
     const data = baseData({

@@ -47,6 +47,37 @@
       as-of mechanism doesn't touch this at all; it remains fully unsolved
       and needs its own design pass (the "confirmed as of" / review-nudge
       ideas discussed earlier are candidates, but nothing was decided).
+
+      **Follow-up fix — one-off events dated in the past were silently
+      dropped**: found while chasing a real "net worth at 65 looks ~10x
+      lower than before" report. Traced it to a `git bisect` that turned
+      out to be unreliable (replaying real localStorage data, already
+      migrated to the newest schema, through old commits' own — older,
+      incompatible — migration chains produces misleading results; not a
+      valid way to bisect a stateful app). The actual cause was unrelated
+      to any specific commit: `runProjection`'s month loop only ever ran
+      forward from today, so a one-off event dated before today's month
+      could never match any month the loop visited — it vanished from the
+      projection entirely, with none of the "fast-forward what would have
+      happened" treatment balances already got. Fixed by unifying the
+      separate `catchUpBalance`/`catchUpLoanBalance` pre-pass with the
+      main loop: it now starts from the *earliest* date anything is
+      anchored to (any account/asset/loan's "as of" date, or any one-off
+      event's date) rather than from today, with each account/asset/loan
+      individually gated to only start accruing once the simulation
+      reaches *its own* "as of" month (they can each be stale by a
+      different amount) — and critically, one-off events apply at every
+      iteration regardless of that gating, including the very first one,
+      so an event dated at the earliest simulated month still fires. Only
+      points from today onward are actually returned. A genuine side
+      benefit: catch-up now applies whatever salary/rate changes were
+      actually scheduled during that historical gap, rather than assuming
+      today's figures held steady throughout (the prior simplification).
+      Verified against all 69 pre-existing tests unchanged (proving the
+      no-catch-up-needed case is untouched), plus 3 new tests for the fix
+      itself (a past-dated account event, a past-dated loan repayment,
+      and two accounts with independently different staleness catching up
+      correctly side by side).
 - [ ] **Forecast "profiles"**: support layering hypothetical scenarios (salary
       change, a one-off purchase, adjusted contributions) on top of the base
       "real" data, without losing/overwriting the real numbers — so different

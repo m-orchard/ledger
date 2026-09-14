@@ -85,46 +85,24 @@ function monthsBetween(from: Date, to: Date): number {
   return Math.max(0, (to.getFullYear() - from.getFullYear()) * 12 + (to.getMonth() - from.getMonth()));
 }
 
-/**
- * Fast-forwards a balance from its "as of" date to `today`, applying the same
- * monthly growth (and, for accounts, contribution) the main projection loop
- * would have applied over that gap — so a balance that's months old doesn't
- * silently miss growth/contributions that have already happened. Assumes
- * they continued exactly as configured, consistent with this being a
- * fixed-rate model throughout.
- */
-function catchUpBalance(balance: number, asOf: string, today: Date, rateAt: (date: Date) => number, monthlyContribution = 0): number {
-  const asOfDate = parseLocalDate(asOf);
-  const start = new Date(asOfDate.getFullYear(), asOfDate.getMonth(), 1);
-  const months = monthsBetween(start, today);
-  let result = balance;
-  for (let i = 1; i <= months; i++) {
-    const date = new Date(start.getFullYear(), start.getMonth() + i, 1);
-    const monthlyRate = Math.pow(1 + rateAt(date) / 100, 1 / 12) - 1;
-    result = result * (1 + monthlyRate) + monthlyContribution;
-  }
-  return result;
-}
-
-/** As `catchUpBalance`, but for a loan: interest accrues, then the payment reduces the balance (capped so it can't go negative). */
-function catchUpLoanBalance(balance: number, asOf: string, today: Date, rateAt: (date: Date) => number, monthlyPayment: number): number {
-  const asOfDate = parseLocalDate(asOf);
-  const start = new Date(asOfDate.getFullYear(), asOfDate.getMonth(), 1);
-  const months = monthsBetween(start, today);
-  let result = balance;
-  for (let i = 1; i <= months; i++) {
-    const date = new Date(start.getFullYear(), start.getMonth() + i, 1);
-    const monthlyRate = Math.pow(1 + rateAt(date) / 100, 1 / 12) - 1;
-    result += result * monthlyRate;
-    result -= Math.min(monthlyPayment, result);
-  }
-  return result;
+function firstOfMonth(date: Date): Date {
+  return new Date(date.getFullYear(), date.getMonth(), 1);
 }
 
 /**
- * Runs a month-by-month simulation from today out to the configured
- * projection end age. Growth is applied first each month, then the
- * regular contribution, then any one-off events dated in that month.
+ * Runs a month-by-month simulation from the earliest date anything in the data is anchored to
+ * (a stale balance's "as of" date, or a one-off event dated in the past) out to the configured
+ * projection end age, then returns only the points from today onward. Growth is applied first
+ * each month, then the regular contribution, then any one-off events dated in that month.
+ *
+ * Starting from the earliest anchor rather than from today is what makes catch-up work at all:
+ * each account/asset/loan only starts accruing once the simulation reaches its own "as of"
+ * date (they can each be stale by a different amount), and — critically — a one-off event
+ * dated in the past is no longer silently skipped, since the loop actually visits that month
+ * instead of only ever running forward from today. This replaced two separate mechanisms (a
+ * simplified pre-pass for balance catch-up, and the forward-only main loop) with one — so
+ * catch-up now also correctly reflects whatever salary/rate changes were scheduled for that
+ * historical window, rather than assuming today's figures held steady throughout the gap.
  *
  * This is a deterministic, fixed-rate model (not a Monte Carlo
  * simulation) — it answers "what happens if my assumed rates hold",
@@ -142,10 +120,27 @@ export function runProjection(data: AppData): ProjectionPoint[] {
   const startDate = new Date();
   const today = new Date(startDate.getFullYear(), startDate.getMonth(), 1);
 
+  const anchorDates = [
+    ...accounts.map((a) => parseLocalDate(a.balanceAsOf)),
+    ...assets.map((a) => parseLocalDate(a.valueAsOf)),
+    ...loans.map((l) => parseLocalDate(l.balanceAsOf)),
+    ...oneOffs.map((e) => parseLocalDate(e.date)),
+  ];
+  const earliestMs = Math.min(today.getTime(), ...anchorDates.map((d) => d.getTime()));
+  const start = firstOfMonth(new Date(earliestMs));
+  const catchUpMonths = monthsBetween(start, today);
+  const totalIterations = catchUpMonths + totalMonths;
+
+  // Each account/asset/loan only starts accruing once the simulation reaches its own "as of"
+  // month — they can each be stale by a different amount, unlike the shared start above.
+  const accountAsOf = new Map(accounts.map((a) => [a.id, firstOfMonth(parseLocalDate(a.balanceAsOf))]));
+  const assetAsOf = new Map(assets.map((a) => [a.id, firstOfMonth(parseLocalDate(a.valueAsOf))]));
+  const loanAsOf = new Map(loans.map((l) => [l.id, firstOfMonth(parseLocalDate(l.balanceAsOf))]));
+
   // Each account's own monthly contribution, plus any Lifetime ISA government bonus. The
   // salary-routed portion (sacrifice + employer) is added separately, per month, inside the
-  // loop below — it can now vary over time via a salary's scheduledChanges, so it can no
-  // longer be folded into one fixed-for-the-whole-projection map the way this used to be.
+  // loop below — it varies over time via a salary's scheduledChanges, so it can't be folded
+  // into one fixed-for-the-whole-projection map.
   const ownContributionByAccount: Record<string, number> = {};
   accounts.forEach((a) => {
     const ownMonthly = toMonthlyAmount(a.contributionAmount, a.contributionFrequency);
@@ -153,49 +148,12 @@ export function runProjection(data: AppData): ProjectionPoint[] {
     ownContributionByAccount[a.id] = ownMonthly + bonus;
   });
 
-  // Balances are stored "as of" a date that may be in the past — fast-forward each to today
-  // first (see catchUpBalance/catchUpLoanBalance above) so a months-old figure isn't silently
-  // treated as true right now. The catch-up pass assumes today's effective salary figures
-  // held steady during that gap — the same simplifying assumption already made for every
-  // other flat rate/contribution here.
-  const todaysSalaryBreakdowns = salaries.map((s) =>
-    isSalaryActive(s, today) ? calcSalaryBreakdown(effectiveSalary(s, today), settings.tax) : ZERO_SALARY_BREAKDOWN
-  );
-  const contributionsByAccountToday: Record<string, number> = { ...ownContributionByAccount };
-  salaries.forEach((s, i) => {
-    if (s.pensionAccountId && contributionsByAccountToday[s.pensionAccountId] !== undefined) {
-      contributionsByAccountToday[s.pensionAccountId] += todaysSalaryBreakdowns[i].pensionContributionMonthly;
-    }
-  });
-
   const balances: Record<string, number> = {};
-  accounts.forEach((a) => {
-    balances[a.id] = catchUpBalance(
-      a.balance,
-      a.balanceAsOf,
-      today,
-      (date) => effectiveRate(a.annualGrowthRate, a.rateChanges, date),
-      contributionsByAccountToday[a.id] ?? 0
-    );
-  });
-
+  accounts.forEach((a) => { balances[a.id] = a.balance; });
   const assetBalances: Record<string, number> = {};
-  assets.forEach((a) => {
-    assetBalances[a.id] = catchUpBalance(a.value, a.valueAsOf, today, (date) =>
-      effectiveRate(a.annualGrowthRate, a.rateChanges, date)
-    );
-  });
-
+  assets.forEach((a) => { assetBalances[a.id] = a.value; });
   const loanBalances: Record<string, number> = {};
-  loans.forEach((l) => {
-    loanBalances[l.id] = catchUpLoanBalance(
-      l.balance,
-      l.balanceAsOf,
-      today,
-      (date) => effectiveRate(l.annualInterestRate, l.rateChanges, date),
-      l.monthlyPayment
-    );
-  });
+  loans.forEach((l) => { loanBalances[l.id] = l.balance; });
 
   const recurringIncome = income.reduce((s, i) => s + toMonthlyAmount(i.amount, i.frequency), 0);
   const recurringExpenses = expenses.reduce((s, i) => s + toMonthlyAmount(i.amount, i.frequency), 0);
@@ -211,9 +169,11 @@ export function runProjection(data: AppData): ProjectionPoint[] {
 
   const points: ProjectionPoint[] = [];
 
-  for (let m = 0; m <= totalMonths; m++) {
-    const date = new Date(today.getFullYear(), today.getMonth() + m, 1);
+  for (let i = 0; i <= totalIterations; i++) {
+    const date = new Date(start.getFullYear(), start.getMonth() + i, 1);
+    const m = i - catchUpMonths; // 0 at today
     const age = settings.currentAge + m / 12;
+    const isCatchUp = m < 0;
 
     const eventsThisMonth = oneOffs.filter((e) => sameMonth(new Date(e.date), date));
 
@@ -226,15 +186,17 @@ export function runProjection(data: AppData): ProjectionPoint[] {
 
     let loanPaymentsThisMonth = 0;
 
-    if (m > 0) {
+    if (i > 0) {
       // 1. Apply growth (converted from annual to a compounding monthly rate)
       accounts.forEach((a) => {
+        if (date <= accountAsOf.get(a.id)!) return;
         const monthlyRate = Math.pow(1 + effectiveRate(a.annualGrowthRate, a.rateChanges, date) / 100, 1 / 12) - 1;
         balances[a.id] = balances[a.id] * (1 + monthlyRate);
       });
 
       // 2. Apply regular contributions (own + routed salary sacrifice/employer, resolved above for this month)
       accounts.forEach((a) => {
+        if (date <= accountAsOf.get(a.id)!) return;
         let contribution = ownContributionByAccount[a.id] ?? 0;
         salaries.forEach((s, i) => {
           if (s.pensionAccountId === a.id) {
@@ -244,41 +206,22 @@ export function runProjection(data: AppData): ProjectionPoint[] {
         balances[a.id] += contribution;
       });
 
-      // 3. Apply one-off events targeted at an account
-      eventsThisMonth.forEach((e) => {
-        if (e.accountId && balances[e.accountId] !== undefined) {
-          balances[e.accountId] += e.amount;
-        }
-      });
-
-      // 3b. Apply asset growth/depreciation, then one-off events targeted at an asset
+      // 3. Apply asset growth/depreciation
       assets.forEach((a) => {
+        if (date <= assetAsOf.get(a.id)!) return;
         const monthlyRate = Math.pow(1 + effectiveRate(a.annualGrowthRate, a.rateChanges, date) / 100, 1 / 12) - 1;
         assetBalances[a.id] = assetBalances[a.id] * (1 + monthlyRate);
-      });
-      eventsThisMonth.forEach((e) => {
-        if (e.assetId && assetBalances[e.assetId] !== undefined) {
-          assetBalances[e.assetId] += e.amount;
-        }
       });
 
       // 4. Accrue loan interest, then make the regular payment (capped at the
       // remaining balance so payments — and their cost — stop at payoff)
       loans.forEach((l) => {
+        if (date <= loanAsOf.get(l.id)!) return;
         const monthlyRate = Math.pow(1 + effectiveRate(l.annualInterestRate, l.rateChanges, date) / 100, 1 / 12) - 1;
         loanBalances[l.id] += loanBalances[l.id] * monthlyRate;
         const payment = Math.min(l.monthlyPayment, loanBalances[l.id]);
         loanBalances[l.id] -= payment;
         loanPaymentsThisMonth += payment;
-      });
-
-      // 5. Apply one-off events targeted at a loan — same signed convention as accounts/assets:
-      // negative (an expense, money leaving you) is an extra repayment, positive (income, money
-      // coming to you) is borrowing more, e.g. a further advance.
-      eventsThisMonth.forEach((e) => {
-        if (e.loanId && loanBalances[e.loanId] !== undefined) {
-          loanBalances[e.loanId] = Math.max(0, loanBalances[e.loanId] + e.amount);
-        }
       });
     } else {
       loanPaymentsThisMonth = loans.reduce(
@@ -286,6 +229,28 @@ export function runProjection(data: AppData): ProjectionPoint[] {
         0
       );
     }
+
+    // Apply one-off events every iteration, including i=0 — an event dated at the very
+    // earliest simulated month should still take effect, unlike growth/contributions above,
+    // which don't apply for the literal "as of" month itself (that's what the month means).
+    eventsThisMonth.forEach((e) => {
+      if (e.accountId && balances[e.accountId] !== undefined) {
+        balances[e.accountId] += e.amount;
+      }
+      if (e.assetId && assetBalances[e.assetId] !== undefined) {
+        assetBalances[e.assetId] += e.amount;
+      }
+      // Same signed convention as accounts/assets: negative (an expense, money leaving you)
+      // is an extra repayment, positive (income, money coming to you) is borrowing more,
+      // e.g. a further advance.
+      if (e.loanId && loanBalances[e.loanId] !== undefined) {
+        loanBalances[e.loanId] = Math.max(0, loanBalances[e.loanId] + e.amount);
+      }
+    });
+
+    // Everything up to here has to run during catch-up too (it's what makes catch-up work),
+    // but nothing before today is ever surfaced as a point.
+    if (isCatchUp) continue;
 
     const totalDebt = Object.values(loanBalances).reduce((s, v) => s + v, 0);
     const totalAssetValue = Object.values(assetBalances).reduce((s, v) => s + v, 0);
